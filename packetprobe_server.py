@@ -595,6 +595,21 @@ def save_extracted_file(data: bytes, ftype: str, ext: str, offset: int, result: 
 
 # ─── Flask Routes ─────────────────────────────────────────────────────────────
 
+@app.route('/')
+def index():
+    """Serve the frontend HTML."""
+    html_path = BASE_DIR / 'packetprobe.html'
+    if html_path.exists():
+        return send_file(str(html_path))
+    return (
+        '<h2>PacketProbe backend is running.</h2>'
+        '<p>Place <code>packetprobe.html</code> in the same folder as this script, '
+        'then visit <a href="/">http://localhost:7734</a> — '
+        'or just open the HTML file directly in your browser.</p>',
+        200
+    )
+
+
 @app.route('/api/health')
 def health():
     return jsonify({'status': 'ok', 'dpkt': DPKT_OK, 'pil': PIL_OK})

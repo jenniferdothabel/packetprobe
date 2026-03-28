@@ -1043,7 +1043,8 @@ What would you like to know?</div>
 </div>
 
 <script>
-const API_BASE = 'http://localhost:7734';
+// Auto-detect backend: same origin when served by Flask, fallback for file:// open
+const API_BASE = (location.protocol === 'file:') ? 'http://localhost:7734' : '';
 let currentAnalysis = null;
 let chatHistory = [];
 
