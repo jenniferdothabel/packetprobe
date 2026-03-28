@@ -1,0 +1,1708 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PacketProbe — PCAP Forensic Analyzer</title>
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@400;500;600;700&family=Exo+2:wght@300;400;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #070b12;
+    --bg2: #0c1220;
+    --bg3: #111827;
+    --panel: #0f1928;
+    --border: #1e3050;
+    --border2: #243d60;
+    --cyan: #00d4ff;
+    --cyan2: #00a8cc;
+    --green: #00ff9f;
+    --green2: #00cc7a;
+    --red: #ff3860;
+    --orange: #ff9500;
+    --yellow: #ffd60a;
+    --purple: #bd00ff;
+    --text: #c8d8f0;
+    --text2: #7a9ab8;
+    --text3: #4a6a88;
+    --glow-cyan: 0 0 20px rgba(0,212,255,0.3);
+    --glow-green: 0 0 20px rgba(0,255,159,0.3);
+    --glow-red: 0 0 20px rgba(255,56,96,0.3);
+    --mono: 'Share Tech Mono', monospace;
+    --head: 'Rajdhani', sans-serif;
+    --body: 'Exo 2', sans-serif;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--body);
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* ── Grid background ── */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(0,212,255,0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0,212,255,0.03) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  /* ── Header ── */
+  header {
+    position: relative;
+    z-index: 10;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 32px;
+    background: rgba(7,11,18,0.9);
+    border-bottom: 1px solid var(--border);
+    backdrop-filter: blur(10px);
+  }
+
+  .logo {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .logo-icon {
+    width: 38px; height: 38px;
+    border: 2px solid var(--cyan);
+    border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: var(--glow-cyan);
+    font-size: 20px;
+  }
+
+  .logo h1 {
+    font-family: var(--head);
+    font-size: 24px;
+    font-weight: 700;
+    color: var(--cyan);
+    letter-spacing: 3px;
+    text-shadow: var(--glow-cyan);
+  }
+
+  .logo span {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text3);
+    display: block;
+    letter-spacing: 2px;
+  }
+
+  .status-bar {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text3);
+  }
+
+  .status-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--green);
+    box-shadow: var(--glow-green);
+    animation: pulse 2s infinite;
+  }
+
+  @keyframes pulse {
+    0%,100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+
+  /* ── Main Layout ── */
+  .main {
+    position: relative;
+    z-index: 1;
+    display: grid;
+    grid-template-columns: 1fr 380px;
+    grid-template-rows: auto 1fr;
+    height: calc(100vh - 72px);
+    gap: 0;
+  }
+
+  /* ── Upload Zone ── */
+  .upload-section {
+    grid-column: 1 / -1;
+    padding: 20px 32px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 24px;
+  }
+
+  .drop-zone {
+    flex: 1;
+    border: 2px dashed var(--border2);
+    border-radius: 12px;
+    padding: 24px 32px;
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    cursor: pointer;
+    transition: all 0.3s;
+    background: rgba(0,212,255,0.02);
+    position: relative;
+    overflow: hidden;
+  }
+
+  .drop-zone:hover, .drop-zone.drag-over {
+    border-color: var(--cyan);
+    background: rgba(0,212,255,0.06);
+    box-shadow: var(--glow-cyan);
+  }
+
+  .drop-zone::before {
+    content: '';
+    position: absolute;
+    top: -50%;
+    left: -50%;
+    width: 200%;
+    height: 200%;
+    background: radial-gradient(ellipse at center, rgba(0,212,255,0.05) 0%, transparent 60%);
+    opacity: 0;
+    transition: opacity 0.3s;
+  }
+
+  .drop-zone:hover::before { opacity: 1; }
+
+  .drop-icon {
+    font-size: 36px;
+    filter: drop-shadow(0 0 8px rgba(0,212,255,0.5));
+  }
+
+  .drop-text h3 {
+    font-family: var(--head);
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--text);
+    letter-spacing: 1px;
+  }
+
+  .drop-text p {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text3);
+    margin-top: 4px;
+    letter-spacing: 1px;
+  }
+
+  #fileInput { display: none; }
+
+  .analyze-btn {
+    padding: 14px 32px;
+    background: linear-gradient(135deg, var(--cyan2), var(--cyan));
+    border: none;
+    border-radius: 8px;
+    color: #000;
+    font-family: var(--head);
+    font-size: 16px;
+    font-weight: 700;
+    letter-spacing: 2px;
+    cursor: pointer;
+    transition: all 0.2s;
+    box-shadow: var(--glow-cyan);
+    white-space: nowrap;
+  }
+
+  .analyze-btn:hover { transform: translateY(-2px); box-shadow: 0 0 30px rgba(0,212,255,0.5); }
+  .analyze-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+
+  /* ── Content Area ── */
+  .content-area {
+    overflow-y: auto;
+    padding: 20px 32px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  /* ── AI Chat Panel ── */
+  .ai-panel {
+    border-left: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    background: var(--bg2);
+  }
+
+  .panel-header {
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: var(--panel);
+  }
+
+  .panel-header h3 {
+    font-family: var(--head);
+    font-size: 15px;
+    font-weight: 600;
+    letter-spacing: 2px;
+    color: var(--cyan);
+  }
+
+  .ai-badge {
+    background: linear-gradient(135deg, var(--purple), var(--cyan));
+    border-radius: 4px;
+    padding: 2px 8px;
+    font-family: var(--mono);
+    font-size: 9px;
+    color: #fff;
+    letter-spacing: 1px;
+  }
+
+  .chat-messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .msg {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .msg-label {
+    font-family: var(--mono);
+    font-size: 9px;
+    letter-spacing: 2px;
+  }
+
+  .msg.user .msg-label { color: var(--cyan); text-align: right; }
+  .msg.ai .msg-label { color: var(--green); }
+
+  .msg-bubble {
+    padding: 10px 14px;
+    border-radius: 8px;
+    font-size: 13px;
+    line-height: 1.6;
+    max-width: 100%;
+  }
+
+  .msg.user .msg-bubble {
+    background: rgba(0,212,255,0.08);
+    border: 1px solid rgba(0,212,255,0.2);
+    align-self: flex-end;
+    text-align: right;
+  }
+
+  .msg.ai .msg-bubble {
+    background: rgba(0,255,159,0.05);
+    border: 1px solid rgba(0,255,159,0.15);
+    align-self: flex-start;
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 12px;
+    white-space: pre-wrap;
+  }
+
+  .chat-input-area {
+    padding: 12px 16px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    gap: 8px;
+  }
+
+  .chat-input {
+    flex: 1;
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px 12px;
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 12px;
+    resize: none;
+    height: 60px;
+    transition: border-color 0.2s;
+  }
+
+  .chat-input:focus { outline: none; border-color: var(--cyan); }
+
+  .send-btn {
+    width: 48px;
+    background: rgba(0,255,159,0.1);
+    border: 1px solid var(--green2);
+    border-radius: 6px;
+    color: var(--green);
+    font-size: 18px;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .send-btn:hover {
+    background: rgba(0,255,159,0.2);
+    box-shadow: var(--glow-green);
+  }
+
+  .quick-prompts {
+    padding: 8px 16px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    border-top: 1px solid var(--border);
+  }
+
+  .qp {
+    padding: 4px 10px;
+    background: rgba(189,0,255,0.08);
+    border: 1px solid rgba(189,0,255,0.2);
+    border-radius: 20px;
+    font-family: var(--mono);
+    font-size: 9px;
+    color: var(--purple);
+    cursor: pointer;
+    transition: all 0.2s;
+    letter-spacing: 0.5px;
+  }
+
+  .qp:hover { background: rgba(189,0,255,0.18); }
+
+  /* ── Cards ── */
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+  }
+
+  .card-header {
+    padding: 12px 20px;
+    background: rgba(0,212,255,0.04);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  .card-title {
+    font-family: var(--head);
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: 2px;
+    color: var(--cyan);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .badge {
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 500;
+  }
+
+  .badge-red { background: rgba(255,56,96,0.15); color: var(--red); border: 1px solid rgba(255,56,96,0.3); }
+  .badge-green { background: rgba(0,255,159,0.1); color: var(--green); border: 1px solid rgba(0,255,159,0.2); }
+  .badge-orange { background: rgba(255,149,0,0.1); color: var(--orange); border: 1px solid rgba(255,149,0,0.2); }
+  .badge-cyan { background: rgba(0,212,255,0.1); color: var(--cyan); border: 1px solid rgba(0,212,255,0.2); }
+  .badge-purple { background: rgba(189,0,255,0.1); color: var(--purple); border: 1px solid rgba(189,0,255,0.2); }
+
+  .card-body { padding: 16px 20px; }
+
+  /* ── Stats Grid ── */
+  .stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 12px;
+  }
+
+  .stat-item {
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .stat-value {
+    font-family: var(--mono);
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--cyan);
+  }
+
+  .stat-value.red { color: var(--red); }
+  .stat-value.green { color: var(--green); }
+  .stat-value.orange { color: var(--orange); }
+
+  .stat-label {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 1.5px;
+    color: var(--text3);
+    text-transform: uppercase;
+  }
+
+  /* ── Tables ── */
+  .data-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-family: var(--mono);
+    font-size: 11px;
+  }
+
+  .data-table th {
+    padding: 8px 12px;
+    text-align: left;
+    color: var(--text3);
+    letter-spacing: 1.5px;
+    font-size: 10px;
+    text-transform: uppercase;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .data-table td {
+    padding: 8px 12px;
+    border-bottom: 1px solid rgba(30,48,80,0.5);
+    color: var(--text);
+    vertical-align: top;
+  }
+
+  .data-table tr:last-child td { border-bottom: none; }
+  .data-table tr:hover td { background: rgba(0,212,255,0.03); }
+
+  /* ── Finding Items ── */
+  .finding {
+    padding: 10px 14px;
+    border-radius: 6px;
+    border-left: 3px solid;
+    background: rgba(0,0,0,0.2);
+    margin-bottom: 8px;
+  }
+
+  .finding.critical { border-color: var(--red); }
+  .finding.warning { border-color: var(--orange); }
+  .finding.info { border-color: var(--cyan); }
+  .finding.success { border-color: var(--green); }
+
+  .finding-type {
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 2px;
+    margin-bottom: 4px;
+  }
+
+  .finding.critical .finding-type { color: var(--red); }
+  .finding.warning .finding-type { color: var(--orange); }
+  .finding.info .finding-type { color: var(--cyan); }
+
+  .finding-detail {
+    font-size: 12px;
+    color: var(--text2);
+    line-height: 1.5;
+  }
+
+  /* ── Image Grid ── */
+  .image-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+    gap: 12px;
+  }
+
+  .img-card {
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+    cursor: pointer;
+    transition: all 0.2s;
+    position: relative;
+  }
+
+  .img-card:hover {
+    border-color: var(--cyan);
+    box-shadow: var(--glow-cyan);
+    transform: translateY(-2px);
+  }
+
+  .img-card.stego-suspect {
+    border-color: var(--red);
+    box-shadow: var(--glow-red);
+  }
+
+  .img-preview {
+    width: 100%;
+    height: 90px;
+    object-fit: cover;
+    display: block;
+    background: var(--bg2);
+  }
+
+  .img-preview-placeholder {
+    width: 100%;
+    height: 90px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg2);
+    font-size: 28px;
+  }
+
+  .img-meta {
+    padding: 6px 8px;
+  }
+
+  .img-meta-name {
+    font-family: var(--mono);
+    font-size: 9px;
+    color: var(--text3);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .img-meta-info {
+    font-family: var(--mono);
+    font-size: 9px;
+    color: var(--text3);
+    margin-top: 2px;
+  }
+
+  .stego-badge {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    background: var(--red);
+    color: #fff;
+    font-family: var(--mono);
+    font-size: 8px;
+    padding: 2px 4px;
+    border-radius: 3px;
+    font-weight: 700;
+  }
+
+  /* ── Progress ── */
+  .progress-bar {
+    height: 4px;
+    background: var(--border);
+    border-radius: 2px;
+    overflow: hidden;
+    margin: 8px 0;
+  }
+
+  .progress-fill {
+    height: 100%;
+    border-radius: 2px;
+    transition: width 0.5s ease;
+    background: linear-gradient(90deg, var(--cyan2), var(--cyan));
+    box-shadow: 0 0 8px rgba(0,212,255,0.6);
+  }
+
+  /* ── Loading State ── */
+  .loading-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(7,11,18,0.85);
+    z-index: 100;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 20px;
+    backdrop-filter: blur(4px);
+  }
+
+  .loading-overlay.active { display: flex; }
+
+  .scan-animation {
+    width: 200px;
+    height: 200px;
+    position: relative;
+  }
+
+  .scan-ring {
+    position: absolute;
+    border-radius: 50%;
+    border: 2px solid transparent;
+    animation: spin 2s linear infinite;
+  }
+
+  .scan-ring:nth-child(1) {
+    inset: 0;
+    border-top-color: var(--cyan);
+    animation-duration: 1.5s;
+  }
+
+  .scan-ring:nth-child(2) {
+    inset: 20px;
+    border-right-color: var(--green);
+    animation-duration: 2s;
+    animation-direction: reverse;
+  }
+
+  .scan-ring:nth-child(3) {
+    inset: 40px;
+    border-bottom-color: var(--purple);
+    animation-duration: 2.5s;
+  }
+
+  .scan-center {
+    position: absolute;
+    inset: 60px;
+    background: radial-gradient(circle, rgba(0,212,255,0.2), transparent);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 36px;
+  }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .loading-text {
+    font-family: var(--mono);
+    font-size: 14px;
+    color: var(--cyan);
+    letter-spacing: 3px;
+    text-align: center;
+  }
+
+  .loading-sub {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text3);
+    letter-spacing: 2px;
+    text-align: center;
+    animation: blink 1s step-end infinite;
+  }
+
+  @keyframes blink { 50% { opacity: 0; } }
+
+  /* ── Tab Nav ── */
+  .tab-nav {
+    display: flex;
+    gap: 4px;
+    flex-wrap: wrap;
+    padding: 16px 32px 0;
+  }
+
+  .tab {
+    padding: 8px 16px;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 6px 6px 0 0;
+    font-family: var(--head);
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 1.5px;
+    color: var(--text3);
+    cursor: pointer;
+    transition: all 0.2s;
+    position: relative;
+  }
+
+  .tab:hover { color: var(--text); border-color: var(--border2); }
+
+  .tab.active {
+    color: var(--cyan);
+    border-color: var(--cyan);
+    border-bottom-color: var(--panel);
+    background: var(--panel);
+  }
+
+  .tab-count {
+    background: rgba(255,56,96,0.2);
+    color: var(--red);
+    border-radius: 10px;
+    padding: 1px 6px;
+    font-size: 9px;
+    margin-left: 6px;
+  }
+
+  .tab-count.safe { background: rgba(0,255,159,0.1); color: var(--green); }
+
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; }
+
+  /* ── Empty State ── */
+  .empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 80px 40px;
+    color: var(--text3);
+    text-align: center;
+    gap: 16px;
+  }
+
+  .empty-icon { font-size: 60px; opacity: 0.3; }
+
+  .empty-state h3 {
+    font-family: var(--head);
+    font-size: 20px;
+    font-weight: 600;
+    letter-spacing: 2px;
+    color: var(--text2);
+  }
+
+  .empty-state p {
+    font-family: var(--mono);
+    font-size: 12px;
+    line-height: 1.8;
+    max-width: 500px;
+  }
+
+  /* ── Report Section ── */
+  .report-section { margin-bottom: 16px; }
+
+  .report-section h4 {
+    font-family: var(--head);
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 2px;
+    color: var(--cyan);
+    margin-bottom: 10px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border);
+    text-transform: uppercase;
+  }
+
+  .rec-item {
+    display: flex;
+    gap: 12px;
+    padding: 8px 0;
+    border-bottom: 1px solid rgba(30,48,80,0.4);
+    align-items: flex-start;
+  }
+
+  .rec-item:last-child { border-bottom: none; }
+
+  .rec-num {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--mono);
+    font-size: 9px;
+    font-weight: 700;
+    flex-shrink: 0;
+    margin-top: 1px;
+  }
+
+  .rec-num.critical { background: rgba(255,56,96,0.2); color: var(--red); border: 1px solid var(--red); }
+  .rec-num.warning { background: rgba(255,149,0,0.2); color: var(--orange); border: 1px solid var(--orange); }
+  .rec-num.info { background: rgba(0,212,255,0.1); color: var(--cyan); border: 1px solid var(--cyan); }
+
+  .rec-content { flex: 1; }
+  .rec-title { font-size: 13px; font-weight: 600; color: var(--text); margin-bottom: 4px; }
+  .rec-desc { font-family: var(--mono); font-size: 11px; color: var(--text2); line-height: 1.6; }
+
+  /* ── Scrollbars ── */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: var(--bg2); }
+  ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--text3); }
+
+  /* ── Tooltip ── */
+  [title] { cursor: help; }
+
+  /* ── Responsive ── */
+  @media (max-width: 900px) {
+    .main { grid-template-columns: 1fr; }
+    .ai-panel { height: 350px; }
+  }
+
+  /* ── Scanline effect ── */
+  .scanline {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, var(--cyan), transparent);
+    opacity: 0.4;
+    animation: scanline 6s linear infinite;
+    pointer-events: none;
+    z-index: 999;
+  }
+
+  @keyframes scanline {
+    0% { top: 0; }
+    100% { top: 100vh; }
+  }
+
+  /* Protocol bar */
+  .proto-bar-wrap { display: flex; flex-direction: column; gap: 8px; }
+
+  .proto-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-family: var(--mono);
+    font-size: 11px;
+  }
+
+  .proto-name { width: 60px; color: var(--text3); text-align: right; }
+
+  .proto-bar {
+    flex: 1;
+    height: 16px;
+    background: var(--bg3);
+    border-radius: 3px;
+    overflow: hidden;
+  }
+
+  .proto-fill {
+    height: 100%;
+    border-radius: 3px;
+    transition: width 1s ease;
+    display: flex;
+    align-items: center;
+    padding-left: 6px;
+    font-size: 9px;
+    color: rgba(0,0,0,0.7);
+    font-weight: 700;
+  }
+
+  .proto-count { color: var(--text2); width: 50px; text-align: right; }
+</style>
+</head>
+<body>
+
+<div class="scanline"></div>
+
+<div class="loading-overlay" id="loadingOverlay">
+  <div class="scan-animation">
+    <div class="scan-ring"></div>
+    <div class="scan-ring"></div>
+    <div class="scan-ring"></div>
+    <div class="scan-center">🔬</div>
+  </div>
+  <div class="loading-text">ANALYZING CAPTURE FILE</div>
+  <div class="loading-sub" id="loadingStep">INITIALIZING PACKET PARSER...</div>
+</div>
+
+<header>
+  <div class="logo">
+    <div class="logo-icon">📡</div>
+    <div>
+      <h1>PACKETPROBE</h1>
+      <span>PCAP / 5VIEW FORENSIC ANALYZER</span>
+    </div>
+  </div>
+  <div class="status-bar">
+    <div class="status-dot" id="statusDot"></div>
+    <span id="statusText">SYSTEM READY</span>
+    <span style="color:var(--border2)">|</span>
+    <span>CLAUDE AI ASSISTANT ONLINE</span>
+  </div>
+</header>
+
+<div class="main">
+  <!-- Upload bar -->
+  <div class="upload-section">
+    <div class="drop-zone" id="dropZone">
+      <div class="drop-icon">📦</div>
+      <div class="drop-text">
+        <h3>DROP CAPTURE FILE HERE</h3>
+        <p>SUPPORTS: .pcap · .pcapng · .cap · .5vw · .bin · RAW BINARY</p>
+      </div>
+      <input type="file" id="fileInput" accept=".pcap,.pcapng,.cap,.5vw,.bin,.log">
+    </div>
+    <div style="display:flex;flex-direction:column;gap:8px;align-items:flex-end">
+      <button class="analyze-btn" id="analyzeBtn" disabled>⚡ ANALYZE</button>
+      <div style="font-family:var(--mono);font-size:10px;color:var(--text3);text-align:right" id="fileInfo">NO FILE SELECTED</div>
+    </div>
+  </div>
+
+  <!-- Content -->
+  <div style="display:flex;flex-direction:column;overflow:hidden;grid-row:2">
+    <div class="tab-nav" id="tabNav">
+      <button class="tab active" onclick="showTab('overview')">OVERVIEW</button>
+      <button class="tab" onclick="showTab('violations')">RFC VIOLATIONS <span class="tab-count" id="cnt-violations">0</span></button>
+      <button class="tab" onclick="showTab('stego')">STEGANOGRAPHY <span class="tab-count" id="cnt-stego">0</span></button>
+      <button class="tab" onclick="showTab('images')">IMAGES <span class="tab-count safe" id="cnt-images">0</span></button>
+      <button class="tab" onclick="showTab('creds')">CREDENTIALS <span class="tab-count" id="cnt-creds">0</span></button>
+      <button class="tab" onclick="showTab('packets')">PACKETS <span class="tab-count safe" id="cnt-packets">0</span></button>
+      <button class="tab" onclick="showTab('report')">REPORT</button>
+    </div>
+
+    <div class="content-area" id="contentArea">
+      <!-- Overview tab -->
+      <div class="tab-panel active" id="tab-overview">
+        <div class="empty-state" id="emptyState">
+          <div class="empty-icon">📡</div>
+          <h3>NO CAPTURE LOADED</h3>
+          <p>Drop a PCAP, PCAP-NG, or 5View capture file above to begin forensic analysis.<br><br>
+          PacketProbe will scan for: steganography · RFC violations · embedded images &amp; files · credentials · DNS tunneling · suspicious payloads · protocol anomalies</p>
+        </div>
+        <div id="overviewContent" style="display:none">
+          <div class="stats-grid" id="statsGrid"></div>
+          <div style="margin-top:16px;display:grid;grid-template-columns:1fr 1fr;gap:16px" id="overviewCharts"></div>
+        </div>
+      </div>
+
+      <!-- RFC Violations -->
+      <div class="tab-panel" id="tab-violations">
+        <div id="violationsContent">
+          <p style="font-family:var(--mono);font-size:12px;color:var(--text3);text-align:center;padding:40px">Load a capture file to see RFC violation analysis</p>
+        </div>
+      </div>
+
+      <!-- Steganography -->
+      <div class="tab-panel" id="tab-stego">
+        <div id="stegoContent">
+          <p style="font-family:var(--mono);font-size:12px;color:var(--text3);text-align:center;padding:40px">Load a capture file to see steganography analysis</p>
+        </div>
+      </div>
+
+      <!-- Images -->
+      <div class="tab-panel" id="tab-images">
+        <div id="imagesContent">
+          <p style="font-family:var(--mono);font-size:12px;color:var(--text3);text-align:center;padding:40px">Load a capture file to extract embedded images</p>
+        </div>
+      </div>
+
+      <!-- Credentials -->
+      <div class="tab-panel" id="tab-creds">
+        <div id="credsContent">
+          <p style="font-family:var(--mono);font-size:12px;color:var(--text3);text-align:center;padding:40px">Load a capture file to scan for credentials</p>
+        </div>
+      </div>
+
+      <!-- Packets -->
+      <div class="tab-panel" id="tab-packets">
+        <div id="packetsContent">
+          <p style="font-family:var(--mono);font-size:12px;color:var(--text3);text-align:center;padding:40px">Load a capture file to view packet list</p>
+        </div>
+      </div>
+
+      <!-- Report -->
+      <div class="tab-panel" id="tab-report">
+        <div id="reportContent">
+          <p style="font-family:var(--mono);font-size:12px;color:var(--text3);text-align:center;padding:40px">Analyze a file to generate a comprehensive report</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- AI Chat Panel -->
+  <div class="ai-panel">
+    <div class="panel-header">
+      <span style="font-size:18px">🤖</span>
+      <h3>AI FORENSIC ASSISTANT</h3>
+      <div class="ai-badge">CLAUDE</div>
+    </div>
+
+    <div class="chat-messages" id="chatMessages">
+      <div class="msg ai">
+        <div class="msg-label">PACKETPROBE AI</div>
+        <div class="msg-bubble">Ready to assist with your PCAP forensic analysis.
+
+Upload a capture file and I'll help you:
+→ Interpret RFC violations
+→ Explain stego findings
+→ Analyze suspicious patterns
+→ Recommend remediation steps
+→ Answer protocol questions
+
+What would you like to know?</div>
+      </div>
+    </div>
+
+    <div class="quick-prompts" id="quickPrompts">
+      <div class="qp" onclick="askAI('Explain the RFC violations found')">RFC violations</div>
+      <div class="qp" onclick="askAI('Is there steganography evidence?')">Stego evidence</div>
+      <div class="qp" onclick="askAI('What are the top security concerns?')">Security risks</div>
+      <div class="qp" onclick="askAI('Summarize all findings')">Summarize</div>
+      <div class="qp" onclick="askAI('What remediation steps do you recommend?')">Remediation</div>
+      <div class="qp" onclick="askAI('Explain DNS tunneling detection')">DNS tunneling</div>
+    </div>
+
+    <div class="chat-input-area">
+      <textarea class="chat-input" id="chatInput" placeholder="Ask about the analysis..." 
+        onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendChat()}"></textarea>
+      <button class="send-btn" onclick="sendChat()">➤</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const API_BASE = 'http://localhost:7734';
+let currentAnalysis = null;
+let chatHistory = [];
+
+// ─── File Upload ─────────────────────────────────────────────────────────────
+
+const dropZone = document.getElementById('dropZone');
+const fileInput = document.getElementById('fileInput');
+const analyzeBtn = document.getElementById('analyzeBtn');
+const fileInfo = document.getElementById('fileInfo');
+
+dropZone.onclick = () => fileInput.click();
+
+fileInput.onchange = (e) => {
+  if (e.target.files[0]) selectFile(e.target.files[0]);
+};
+
+dropZone.addEventListener('dragover', e => {
+  e.preventDefault();
+  dropZone.classList.add('drag-over');
+});
+
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+
+dropZone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropZone.classList.remove('drag-over');
+  if (e.dataTransfer.files[0]) selectFile(e.dataTransfer.files[0]);
+});
+
+function selectFile(file) {
+  fileInfo.textContent = `${file.name} — ${(file.size/1024).toFixed(1)} KB`;
+  analyzeBtn.disabled = false;
+  analyzeBtn.onclick = () => analyzeFile(file);
+}
+
+// ─── Analysis ────────────────────────────────────────────────────────────────
+
+const loadingSteps = [
+  'PARSING PACKET HEADERS...',
+  'EXTRACTING TCP STREAMS...',
+  'SCANNING FOR EMBEDDED FILES...',
+  'CHECKING RFC COMPLIANCE...',
+  'ANALYZING LSB STEGANOGRAPHY...',
+  'CARVING IMAGE DATA...',
+  'SCANNING FOR CREDENTIALS...',
+  'RUNNING DNS TUNNEL DETECTION...',
+  'COMPUTING ENTROPY METRICS...',
+  'GENERATING REPORT...',
+];
+
+let stepIdx = 0;
+let stepInterval;
+
+function startLoadingAnim() {
+  stepIdx = 0;
+  const el = document.getElementById('loadingStep');
+  el.textContent = loadingSteps[0];
+  stepInterval = setInterval(() => {
+    stepIdx = (stepIdx + 1) % loadingSteps.length;
+    el.textContent = loadingSteps[stepIdx];
+  }, 800);
+}
+
+async function analyzeFile(file) {
+  document.getElementById('loadingOverlay').classList.add('active');
+  startLoadingAnim();
+  analyzeBtn.disabled = true;
+  document.getElementById('statusText').textContent = 'ANALYZING...';
+
+  // Read as ArrayBuffer -> base64 so it survives postMessage serialization
+  const arrayBuf = await file.arrayBuffer();
+  const bytes = new Uint8Array(arrayBuf);
+  let binary = '';
+  const chunkSize = 8192;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+  }
+  const b64 = btoa(binary);
+
+  try {
+    const resp = await fetch(`${API_BASE}/api/analyze`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ filename: file.name, data: b64 })
+    });
+
+    if (!resp.ok) throw new Error(`Server error: ${resp.status}`);
+    const data = await resp.json();
+    currentAnalysis = data;
+    renderResults(data);
+    
+    // Auto-brief the AI
+    addAIContext(data);
+    
+  } catch (err) {
+    addMessage('ai', `⚠️ Analysis error: ${err.message}\n\nMake sure the backend server is running on port 7734.`);
+    console.error(err);
+  } finally {
+    clearInterval(stepInterval);
+    document.getElementById('loadingOverlay').classList.remove('active');
+    analyzeBtn.disabled = false;
+    document.getElementById('statusText').textContent = 'ANALYSIS COMPLETE';
+  }
+}
+
+// ─── Render Results ───────────────────────────────────────────────────────────
+
+function renderResults(data) {
+  const stats = data.stats || {};
+  const violations = data.rfc_violations || [];
+  const stego = data.stego_findings || [];
+  const images = data.extracted_images || [];
+  const files = data.extracted_files || [];
+  const creds = data.credentials || [];
+  const packets = data.packets || [];
+
+  // Update tab counts
+  document.getElementById('cnt-violations').textContent = violations.length;
+  document.getElementById('cnt-stego').textContent = stego.length;
+  document.getElementById('cnt-images').textContent = images.length;
+  document.getElementById('cnt-creds').textContent = creds.length;
+  document.getElementById('cnt-packets').textContent = stats.total_packets || packets.length;
+
+  // Color code counts
+  document.getElementById('cnt-violations').className = 'tab-count' + (violations.length > 0 ? '' : ' safe');
+  document.getElementById('cnt-stego').className = 'tab-count' + (stego.length > 0 ? '' : ' safe');
+  document.getElementById('cnt-creds').className = 'tab-count' + (creds.length > 0 ? '' : ' safe');
+
+  renderOverview(data, stats, violations, stego, images, creds);
+  renderViolations(violations);
+  renderStego(stego);
+  renderImages(images);
+  renderCreds(creds);
+  renderPackets(packets, stats);
+  renderReport(data, violations, stego, images, creds);
+
+  document.getElementById('emptyState').style.display = 'none';
+  document.getElementById('overviewContent').style.display = 'flex';
+  document.getElementById('overviewContent').style.flexDirection = 'column';
+  document.getElementById('overviewContent').style.gap = '16px';
+}
+
+function renderOverview(data, stats, violations, stego, images, creds) {
+  const protocols = data.protocols || {};
+  const totalProto = Object.values(protocols).reduce((a,b)=>a+b,0) || 1;
+
+  const statsGrid = document.getElementById('statsGrid');
+  statsGrid.innerHTML = `
+    <div class="stat-item">
+      <div class="stat-value">${(stats.total_packets||0).toLocaleString()}</div>
+      <div class="stat-label">Total Packets</div>
+    </div>
+    <div class="stat-item">
+      <div class="stat-value red">${violations.length}</div>
+      <div class="stat-label">RFC Violations</div>
+    </div>
+    <div class="stat-item">
+      <div class="stat-value orange">${stego.length}</div>
+      <div class="stat-label">Stego Suspects</div>
+    </div>
+    <div class="stat-item">
+      <div class="stat-value green">${images.length}</div>
+      <div class="stat-label">Images Extracted</div>
+    </div>
+    <div class="stat-item">
+      <div class="stat-value red">${creds.length}</div>
+      <div class="stat-label">Credential Hits</div>
+    </div>
+    <div class="stat-item">
+      <div class="stat-value">${stats.format || 'PCAP'}</div>
+      <div class="stat-label">Format</div>
+    </div>
+  `;
+
+  const colors = {
+    TCP:'#00d4ff', UDP:'#00ff9f', HTTP:'#ff9500', DNS:'#bd00ff',
+    ICMP:'#ff3860', HTTPS:'#ffd60a', ARP:'#00cc7a', OTHER:'#4a6a88'
+  };
+
+  const charts = document.getElementById('overviewCharts');
+  
+  // Protocol breakdown
+  let protoHTML = '<div class="card"><div class="card-header"><span class="card-title">📊 PROTOCOL BREAKDOWN</span></div><div class="card-body"><div class="proto-bar-wrap">';
+  const sortedProtos = Object.entries(protocols).sort((a,b)=>b[1]-a[1]);
+  sortedProtos.forEach(([proto, count]) => {
+    const pct = Math.round((count/totalProto)*100);
+    const color = colors[proto] || colors.OTHER;
+    protoHTML += `
+      <div class="proto-row">
+        <span class="proto-name">${proto}</span>
+        <div class="proto-bar">
+          <div class="proto-fill" style="width:${pct}%;background:${color}">${pct > 10 ? pct+'%' : ''}</div>
+        </div>
+        <span class="proto-count">${count}</span>
+      </div>`;
+  });
+  if (sortedProtos.length === 0) protoHTML += '<p style="font-family:var(--mono);font-size:11px;color:var(--text3)">No protocol data</p>';
+  protoHTML += '</div></div></div>';
+
+  // DNS queries card
+  const dns = (data.dns_queries || []).slice(0, 8);
+  let dnsHTML = '<div class="card"><div class="card-header"><span class="card-title">🌐 DNS QUERIES</span><span class="badge badge-cyan">' + dns.length + '</span></div><div class="card-body">';
+  if (dns.length > 0) {
+    dnsHTML += '<table class="data-table"><thead><tr><th>DOMAIN</th><th>SOURCE</th></tr></thead><tbody>';
+    dns.forEach(q => {
+      const sus = (q.name||'').length > 50;
+      dnsHTML += `<tr><td style="color:${sus?'var(--red)':'var(--text)'}">${escHtml(q.name||'')}</td><td style="color:var(--text3)">${q.src||''}</td></tr>`;
+    });
+    dnsHTML += '</tbody></table>';
+  } else {
+    dnsHTML += '<p style="font-family:var(--mono);font-size:11px;color:var(--text3)">No DNS queries found</p>';
+  }
+  dnsHTML += '</div></div>';
+
+  charts.innerHTML = protoHTML + dnsHTML;
+}
+
+function renderViolations(violations) {
+  const el = document.getElementById('violationsContent');
+  if (violations.length === 0) {
+    el.innerHTML = '<div class="finding success"><div class="finding-type">✅ NO RFC VIOLATIONS DETECTED</div><div class="finding-detail">No RFC violations were detected in this capture. Traffic appears well-formed.</div></div>';
+    return;
+  }
+
+  const grouped = {};
+  violations.forEach(v => {
+    if (!grouped[v.type]) grouped[v.type] = [];
+    grouped[v.type].push(v);
+  });
+
+  const severity = {
+    TCP_XMAS_SCAN: 'critical', TCP_NULL_SCAN: 'critical',
+    RFC793_SYN_FIN: 'critical', ICMP_TUNNELING_SUSPECT: 'critical',
+    DNS_TUNNELING_SUSPECT: 'critical', RFC3514_EVIL_BIT: 'critical',
+    RFC791_TTL_ZERO: 'warning', RFC791_FRAGMENT_OVERLAP: 'warning',
+    RFC793_URG_ZERO_POINTER: 'warning', RFC1122_LOOPBACK_ESCAPE: 'warning',
+  };
+
+  const descriptions = {
+    TCP_XMAS_SCAN: 'XMAS scan sends packets with FIN, PSH, and URG flags set simultaneously — a classic port scanning technique used to evade stateless firewalls.',
+    TCP_NULL_SCAN: 'NULL scan sends packets with no TCP flags set. RFC 793 mandates at minimum one flag; this is a stealth scanning technique.',
+    RFC793_SYN_FIN: 'RFC 793 prohibits simultaneous SYN+FIN flags. This combination is used in OS fingerprinting and evasion attacks.',
+    ICMP_TUNNELING_SUSPECT: 'ICMP payloads exceeding normal size (>64 bytes) may indicate data exfiltration via ICMP tunneling (e.g., iodine, ptunnel).',
+    DNS_TUNNELING_SUSPECT: 'Excessively long DNS query names are a hallmark of DNS tunneling tools like dnscat2, iodine, or DNScat.',
+    RFC3514_EVIL_BIT: 'RFC 3514 (April Fools) "evil bit" set. In practice, some OS fingerprinting tools or malformed stacks set this reserved IP bit.',
+    RFC791_TTL_ZERO: 'RFC 791 states TTL must be decremented and packets with TTL=0 must be dropped. A TTL of 0 at origin is a protocol violation.',
+    RFC791_FRAGMENT_OVERLAP: 'Overlapping IP fragments can be used to bypass IDS/IPS systems by exploiting fragment reassembly ambiguities.',
+    RFC793_URG_ZERO_POINTER: 'When the URG flag is set, RFC 793 requires a non-zero urgent pointer to indicate the urgent data boundary.',
+    RFC1122_LOOPBACK_ESCAPE: 'RFC 1122 §3.2.1.3 requires loopback (127.x.x.x) traffic stay within the loopback interface — external use suggests spoofing.',
+  };
+
+  let html = '';
+  Object.entries(grouped).forEach(([type, items]) => {
+    const sev = severity[type] || 'info';
+    const desc = descriptions[type] || 'Protocol violation detected.';
+    html += `
+      <div class="finding ${sev}">
+        <div class="finding-type">${type} — ${items.length} OCCURRENCE${items.length>1?'S':''}</div>
+        <div class="finding-detail">
+          <p style="margin-bottom:6px">${desc}</p>
+          <p style="color:var(--text3);font-size:11px">
+            Affected packets: ${items.slice(0,5).map(i=>`#${i.pkt}`).join(', ')}${items.length>5?' ...':''}
+          </p>
+          ${items[0].detail ? `<p style="margin-top:4px;color:var(--text2)">Detail: ${escHtml(items[0].detail)}</p>` : ''}
+        </div>
+      </div>`;
+  });
+  el.innerHTML = html;
+}
+
+function renderStego(stego) {
+  const el = document.getElementById('stegoContent');
+  if (stego.length === 0) {
+    el.innerHTML = '<div class="finding success"><div class="finding-type">✅ NO STEGANOGRAPHY SUSPECTS FOUND</div><div class="finding-detail">LSB entropy analysis and EXIF scanning found no obvious steganographic indicators. Note: Advanced stego techniques may require specialized tools.</div></div>';
+    return;
+  }
+
+  let html = `
+    <div class="finding critical" style="margin-bottom:16px">
+      <div class="finding-type">⚠️ ${stego.length} STEGANOGRAPHIC SUSPECT${stego.length>1?'S':''} DETECTED</div>
+      <div class="finding-detail">The following files exhibit characteristics consistent with steganographic content: high LSB entropy, suspicious EXIF data, or statistical anomalies.</div>
+    </div>`;
+
+  stego.forEach(s => {
+    const lsb = s.details || {};
+    const exif = s.exif || {};
+    html += `
+      <div class="card" style="margin-bottom:12px">
+        <div class="card-header">
+          <span class="card-title">🔍 ${escHtml(s.file)}</span>
+          <span class="badge badge-red">${s.type}</span>
+        </div>
+        <div class="card-body">
+          <table class="data-table">
+            <tr><td style="color:var(--text3);width:160px">LSB Entropy</td><td style="color:${lsb.detected?'var(--red)':'var(--green)'}">${lsb.lsb_entropy || 'N/A'} ${lsb.detected?'⚠️ HIGH':''}</td></tr>
+            <tr><td style="color:var(--text3)">LSB Analysis</td><td>${escHtml(lsb.reason || 'N/A')}</td></tr>
+            <tr><td style="color:var(--text3)">Suspicious EXIF</td><td style="color:${exif.has_hidden_strings?'var(--red)':'var(--text3)'}">${exif.has_hidden_strings ? '⚠️ YES — Hidden strings detected' : 'None found'}</td></tr>
+            ${exif.suspicious_exif && exif.suspicious_exif.length > 0 ? `<tr><td style="color:var(--text3)">EXIF Strings</td><td style="color:var(--red)">${exif.suspicious_exif.map(escHtml).join('<br>')}</td></tr>` : ''}
+          </table>
+          <div style="margin-top:10px;font-family:var(--mono);font-size:11px;color:var(--text3)">
+            Recommended: Run zsteg, stegdetect, or binwalk on this file for deeper analysis.
+          </div>
+        </div>
+      </div>`;
+  });
+  el.innerHTML = html;
+}
+
+function renderImages(images) {
+  const el = document.getElementById('imagesContent');
+  if (images.length === 0) {
+    el.innerHTML = '<p style="font-family:var(--mono);font-size:12px;color:var(--text3);text-align:center;padding:40px">No images extracted from this capture</p>';
+    return;
+  }
+
+  let html = `
+    <div style="margin-bottom:12px;font-family:var(--mono);font-size:11px;color:var(--text2)">
+      ${images.length} image${images.length>1?'s':''} extracted from capture — click any image for details
+    </div>
+    <div class="image-grid">`;
+
+  images.forEach(img => {
+    const isStego = img.lsb_stego && img.lsb_stego.detected;
+    const preview = img.b64_preview
+      ? `<img class="img-preview" src="data:image/png;base64,${img.b64_preview}" alt="${escHtml(img.filename)}">`
+      : `<div class="img-preview-placeholder">${img.type==='JPEG'?'📷':img.type==='PNG'?'🖼️':'🎨'}</div>`;
+
+    html += `
+      <div class="img-card ${isStego?'stego-suspect':''}" onclick="showImageDetail(${JSON.stringify(img).replace(/"/g,'&quot;')})">
+        ${isStego ? '<div class="stego-badge">STEGO</div>' : ''}
+        ${preview}
+        <div class="img-meta">
+          <div class="img-meta-name">${escHtml(img.filename)}</div>
+          <div class="img-meta-info">${img.type} · ${(img.size/1024).toFixed(1)}KB${img.dimensions?' · '+img.dimensions:''}</div>
+          <div class="img-meta-info" style="color:${img.entropy>7?'var(--orange)':'var(--text3)'}">H: ${img.entropy}</div>
+        </div>
+      </div>`;
+  });
+
+  html += '</div>';
+  el.innerHTML = html;
+}
+
+function showImageDetail(img) {
+  const isStego = img.lsb_stego && img.lsb_stego.detected;
+  const html = `
+    <div style="background:rgba(0,0,0,0.85);position:fixed;inset:0;z-index:200;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(6px)" onclick="this.remove()">
+      <div style="background:var(--panel);border:1px solid ${isStego?'var(--red)':'var(--border)'};border-radius:12px;padding:24px;max-width:500px;width:90%;${isStego?'box-shadow:var(--glow-red)':''}" onclick="event.stopPropagation()">
+        <div style="display:flex;justify-content:space-between;margin-bottom:16px">
+          <span style="font-family:var(--head);font-size:16px;letter-spacing:2px;color:${isStego?'var(--red)':'var(--cyan)'}">${isStego?'⚠️ STEGO SUSPECT':'🖼️ IMAGE DETAILS'}</span>
+          <button onclick="this.closest('[onclick]').remove()" style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:18px">✕</button>
+        </div>
+        ${img.b64_preview ? `<img src="data:image/png;base64,${img.b64_preview}" style="width:100%;border-radius:6px;margin-bottom:16px;border:1px solid var(--border)">` : ''}
+        <table class="data-table">
+          <tr><td style="color:var(--text3)">Filename</td><td>${escHtml(img.filename)}</td></tr>
+          <tr><td style="color:var(--text3)">Type</td><td>${img.type}</td></tr>
+          <tr><td style="color:var(--text3)">Size</td><td>${(img.size/1024).toFixed(2)} KB</td></tr>
+          ${img.dimensions ? `<tr><td style="color:var(--text3)">Dimensions</td><td>${img.dimensions}</td></tr>` : ''}
+          <tr><td style="color:var(--text3)">Entropy</td><td style="color:${img.entropy>7?'var(--orange)':'var(--text)'}">${img.entropy} / 8.0</td></tr>
+          <tr><td style="color:var(--text3)">MD5 Fragment</td><td style="font-family:var(--mono)">${img.hash}</td></tr>
+          <tr><td style="color:var(--text3)">LSB Analysis</td><td style="color:${isStego?'var(--red)':'var(--green)'}">${img.lsb_stego?.reason || 'N/A'}</td></tr>
+          <tr><td style="color:var(--text3)">Byte Offset</td><td style="font-family:var(--mono)">${img.offset}</td></tr>
+        </table>
+        <a href="${API_BASE}/api/image/${img.filename}" target="_blank" download style="display:inline-block;margin-top:16px;padding:8px 16px;background:rgba(0,212,255,0.1);border:1px solid var(--cyan);border-radius:6px;color:var(--cyan);text-decoration:none;font-family:var(--mono);font-size:12px">⬇ DOWNLOAD IMAGE</a>
+      </div>
+    </div>`;
+  document.body.insertAdjacentHTML('beforeend', html);
+}
+
+function renderCreds(creds) {
+  const el = document.getElementById('credsContent');
+  if (creds.length === 0) {
+    el.innerHTML = '<div class="finding success"><div class="finding-type">✅ NO CREDENTIALS DETECTED</div><div class="finding-detail">No cleartext credentials, API keys, or authentication tokens were found in the packet payloads.</div></div>';
+    return;
+  }
+
+  let html = `
+    <div class="finding critical" style="margin-bottom:16px">
+      <div class="finding-type">🔑 ${creds.length} CREDENTIAL EXPOSURE${creds.length>1?'S':''} FOUND</div>
+      <div class="finding-detail">Cleartext credentials or sensitive tokens detected in packet payloads. This represents a critical security risk.</div>
+    </div>
+    <table class="data-table" style="margin-top:0">
+      <thead><tr><th>TYPE</th><th>VALUE</th><th>CONTEXT</th><th>SOURCE</th></tr></thead>
+      <tbody>`;
+
+  creds.forEach(c => {
+    html += `<tr>
+      <td><span class="badge badge-red">${escHtml(c.type || 'UNKNOWN')}</span></td>
+      <td style="font-family:var(--mono);color:var(--red);max-width:200px;word-break:break-all">${escHtml((c.string||'').substring(0,80))}</td>
+      <td style="color:var(--text3)">${escHtml(c.context || '')}</td>
+      <td style="color:var(--text3);font-family:var(--mono)">${escHtml(c.src || '')}</td>
+    </tr>`;
+  });
+
+  html += '</tbody></table>';
+  el.innerHTML = html;
+}
+
+function renderPackets(packets, stats) {
+  const el = document.getElementById('packetsContent');
+  if (packets.length === 0) {
+    el.innerHTML = '<p style="font-family:var(--mono);font-size:12px;color:var(--text3);text-align:center;padding:40px">No packet data available</p>';
+    return;
+  }
+
+  const total = stats.total_packets || packets.length;
+  let html = `
+    <div style="margin-bottom:12px;font-family:var(--mono);font-size:11px;color:var(--text2)">
+      Showing ${packets.length} of ${total} packets
+    </div>
+    <div style="overflow-x:auto">
+    <table class="data-table">
+      <thead><tr><th>#</th><th>TIME</th><th>SRC</th><th>DST</th><th>LAYERS</th><th>SIZE</th></tr></thead>
+      <tbody>`;
+
+  packets.slice(0, 200).forEach(p => {
+    const ts = p.ts ? new Date(p.ts * 1000).toISOString().substr(11, 12) : '';
+    html += `<tr>
+      <td style="color:var(--text3)">${p.num}</td>
+      <td style="font-family:var(--mono);color:var(--text3);font-size:10px">${ts}</td>
+      <td style="font-family:var(--mono);font-size:10px">${escHtml(p.src_ip||'')}${p.src_port?':'+p.src_port:''}</td>
+      <td style="font-family:var(--mono);font-size:10px">${escHtml(p.dst_ip||'')}${p.dst_port?':'+p.dst_port:''}</td>
+      <td>${(p.layers||[]).map(l=>`<span class="badge badge-cyan">${l}</span>`).join(' ')}</td>
+      <td style="color:var(--text3);font-family:var(--mono)">${p.len}B</td>
+    </tr>`;
+  });
+
+  html += '</tbody></table></div>';
+  el.innerHTML = html;
+}
+
+function renderReport(data, violations, stego, images, creds) {
+  const el = document.getElementById('reportContent');
+  const now = new Date().toLocaleString();
+  const risk = violations.length > 10 || stego.length > 0 || creds.length > 0 ? 'HIGH'
+    : violations.length > 3 || images.length > 0 ? 'MEDIUM' : 'LOW';
+  const riskColor = risk === 'HIGH' ? 'var(--red)' : risk === 'MEDIUM' ? 'var(--orange)' : 'var(--green)';
+
+  // Build recommendations
+  const recs = [];
+  if (violations.some(v => v.type.includes('SCAN'))) {
+    recs.push({sev:'critical', title:'Active Port Scanning Detected', desc:'XMAS or NULL scan signatures found. Implement stateful firewall rules to block malformed TCP flag combinations and alert on scanning behavior.'});
+  }
+  if (stego.length > 0) {
+    recs.push({sev:'critical', title:'Investigate Steganographic Content', desc:`${stego.length} image(s) show anomalous LSB entropy. Extract and analyze with zsteg, stegdetect, or StegExpose to determine if data is hidden.`});
+  }
+  if (creds.length > 0) {
+    recs.push({sev:'critical', title:'Eliminate Cleartext Credentials', desc:'Credentials transmitted in cleartext detected. Enforce TLS/HTTPS for all communications. Audit affected systems and rotate exposed credentials immediately.'});
+  }
+  if (violations.some(v => v.type === 'DNS_TUNNELING_SUSPECT')) {
+    recs.push({sev:'critical', title:'DNS Tunneling Activity', desc:'DNS queries show tunneling signatures. Inspect DNS traffic with threat intelligence. Consider DNS filtering and RPZ rules to block tunneling domains.'});
+  }
+  if (violations.some(v => v.type === 'ICMP_TUNNELING_SUSPECT')) {
+    recs.push({sev:'warning', title:'ICMP Exfiltration Risk', desc:'Oversized ICMP packets detected. Implement egress filtering on ICMP payload size. Consider blocking non-essential ICMP types at the perimeter.'});
+  }
+  if (violations.some(v => v.type === 'RFC791_FRAGMENT_OVERLAP')) {
+    recs.push({sev:'warning', title:'Fragment Overlap Attack', desc:'IP fragment overlap detected — a common IDS evasion technique. Ensure IPS/NGFW performs fragment reassembly before inspection.'});
+  }
+  if (recs.length === 0) {
+    recs.push({sev:'info', title:'Maintain Monitoring Posture', desc:'No critical findings detected. Continue monitoring with IDS/IPS, log retention, and periodic PCAP analysis. Consider NetFlow collection for baseline establishment.'});
+  }
+  recs.push({sev:'info', title:'Deploy Full Packet Capture', desc:'For ongoing forensic readiness, deploy a continuous PCAP solution (Zeek, Arkime) at ingress/egress points.'});
+  recs.push({sev:'info', title:'Network Segmentation Review', desc:'Ensure network segments are properly isolated. Limit inter-zone traffic to necessary ports and protocols defined in RFC-compliant ACLs.'});
+
+  let recsHTML = recs.map((r, i) => `
+    <div class="rec-item">
+      <div class="rec-num ${r.sev}">${i+1}</div>
+      <div class="rec-content">
+        <div class="rec-title">${r.title}</div>
+        <div class="rec-desc">${r.desc}</div>
+      </div>
+    </div>`).join('');
+
+  el.innerHTML = `
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">📋 FORENSIC ANALYSIS REPORT</span>
+        <span style="font-family:var(--mono);font-size:10px;color:var(--text3)">${now}</span>
+      </div>
+      <div class="card-body">
+        <div class="report-section">
+          <h4>Executive Summary</h4>
+          <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px">
+            <span style="font-family:var(--head);font-size:28px;font-weight:700;color:${riskColor}">${risk} RISK</span>
+            <span style="font-family:var(--mono);font-size:12px;color:var(--text2)">based on ${violations.length} violations, ${stego.length} stego suspects, ${creds.length} credential exposures</span>
+          </div>
+          <p style="font-size:13px;color:var(--text2);line-height:1.7">
+            Analysis of <strong style="color:var(--text)">${escHtml(data.filename||'capture')}</strong> (${data.stats?.format||'PCAP'}) identified 
+            <strong style="color:${violations.length>0?'var(--red)':'var(--green)'}">${violations.length} RFC violation(s)</strong>, 
+            <strong style="color:${stego.length>0?'var(--orange)':'var(--green)'}">${stego.length} steganography suspect(s)</strong>, 
+            <strong style="color:${creds.length>0?'var(--red)':'var(--green)'}">${creds.length} credential exposure(s)</strong>, and 
+            <strong style="color:var(--green)">${images.length} embedded image(s)</strong> across ${(data.stats?.total_packets||0).toLocaleString()} packets.
+          </p>
+        </div>
+
+        <div class="report-section">
+          <h4>Key Findings</h4>
+          ${violations.length > 0 ? `<div class="finding critical"><div class="finding-type">RFC VIOLATIONS (${violations.length})</div><div class="finding-detail">${[...new Set(violations.map(v=>v.type))].join(' · ')}</div></div>` : ''}
+          ${stego.length > 0 ? `<div class="finding warning"><div class="finding-type">STEGANOGRAPHY SUSPECTS (${stego.length})</div><div class="finding-detail">Files with anomalous LSB entropy or suspicious EXIF: ${stego.map(s=>s.file).join(', ')}</div></div>` : ''}
+          ${creds.length > 0 ? `<div class="finding critical"><div class="finding-type">CREDENTIAL EXPOSURES (${creds.length})</div><div class="finding-detail">Cleartext credentials detected in ${[...new Set(creds.map(c=>c.context||''))].join(', ')} context(s)</div></div>` : ''}
+          ${violations.length === 0 && stego.length === 0 && creds.length === 0 ? '<div class="finding success"><div class="finding-type">✅ NO CRITICAL FINDINGS</div></div>' : ''}
+        </div>
+
+        <div class="report-section">
+          <h4>Recommendations</h4>
+          ${recsHTML}
+        </div>
+      </div>
+    </div>`;
+}
+
+// ─── Tab Navigation ────────────────────────────────────────────────────────────
+
+function showTab(id) {
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.getElementById('tab-' + id)?.classList.add('active');
+  event?.target?.classList.add('active');
+}
+
+// ─── AI Chat ──────────────────────────────────────────────────────────────────
+
+function addMessage(role, text) {
+  const msgs = document.getElementById('chatMessages');
+  const label = role === 'user' ? 'YOU' : 'PACKETPROBE AI';
+  const div = document.createElement('div');
+  div.className = `msg ${role}`;
+  div.innerHTML = `<div class="msg-label">${label}</div><div class="msg-bubble">${escHtml(text)}</div>`;
+  msgs.appendChild(div);
+  msgs.scrollTop = msgs.scrollHeight;
+  if (role === 'user') chatHistory.push({ role: 'user', content: text });
+  else chatHistory.push({ role: 'assistant', content: text });
+}
+
+function addLoadingMsg() {
+  const msgs = document.getElementById('chatMessages');
+  const div = document.createElement('div');
+  div.className = 'msg ai';
+  div.id = 'aiLoading';
+  div.innerHTML = `<div class="msg-label">PACKETPROBE AI</div><div class="msg-bubble" style="animation:blink 1s infinite">ANALYZING...</div>`;
+  msgs.appendChild(div);
+  msgs.scrollTop = msgs.scrollHeight;
+}
+
+function addAIContext(data) {
+  const summary = buildContextSummary(data);
+  const systemContent = `You are PacketProbe, an elite network forensics AI assistant embedded in a PCAP analysis tool. You have just completed analysis of a capture file and must provide expert forensic interpretation.
+
+ANALYSIS RESULTS:
+${summary}
+
+Guidelines:
+- Be precise and technical but accessible
+- Reference specific findings from the analysis
+- Provide actionable forensic recommendations  
+- Use RFC numbers when citing protocol violations
+- Flag high-severity items prominently
+- Keep responses concise but thorough`;
+
+  chatHistory = [{ role: 'system', content: systemContent }];
+  
+  askAI('Provide a brief executive summary of the most critical findings in this capture.');
+}
+
+function buildContextSummary(data) {
+  const v = data.rfc_violations || [];
+  const s = data.stego_findings || [];
+  const c = data.credentials || [];
+  const i = data.extracted_images || [];
+  const d = data.dns_queries || [];
+  const protocols = data.protocols || {};
+  const stats = data.stats || {};
+
+  return `File: ${data.filename}
+Format: ${stats.format}
+Total Packets: ${stats.total_packets || 0}
+Protocols: ${Object.entries(protocols).map(([k,v])=>`${k}:${v}`).join(', ')}
+
+RFC VIOLATIONS (${v.length}):
+${v.slice(0,10).map(x=>`- ${x.type} (pkt #${x.pkt}): ${x.detail}`).join('\n')}
+
+STEGANOGRAPHY SUSPECTS (${s.length}):
+${s.map(x=>`- ${x.file}: LSB entropy=${x.details?.lsb_entropy}, ${x.details?.reason}`).join('\n')}
+
+CREDENTIALS FOUND (${c.length}):
+${c.slice(0,5).map(x=>`- [${x.type||'UNKNOWN'}] in ${x.context}: ${(x.string||'').substring(0,60)}`).join('\n')}
+
+IMAGES EXTRACTED (${i.length}):
+${i.slice(0,5).map(x=>`- ${x.filename} (${x.type}, ${(x.size/1024).toFixed(1)}KB, entropy=${x.entropy})`).join('\n')}
+
+DNS QUERIES (${d.length}):
+${d.slice(0,5).map(x=>`- ${x.name} from ${x.src}`).join('\n')}
+
+SUSPICIOUS STRINGS: ${(data.suspicious_strings||[]).slice(0,3).join(' | ')}`;
+}
+
+async function sendChat() {
+  const input = document.getElementById('chatInput');
+  const text = input.value.trim();
+  if (!text) return;
+  input.value = '';
+  await askAI(text);
+}
+
+async function askAI(prompt) {
+  addMessage('user', prompt);
+  addLoadingMsg();
+
+  const messages = chatHistory.filter(m => m.role !== 'system').slice(-10);
+  const systemMsg = chatHistory.find(m => m.role === 'system');
+  
+  const body = {
+    model: 'claude-sonnet-4-20250514',
+    max_tokens: 1000,
+    system: systemMsg ? systemMsg.content : 'You are PacketProbe, a network forensics AI assistant. Help the user analyze network capture files and understand security findings.',
+    messages: [...messages, { role: 'user', content: prompt }]
+  };
+
+  try {
+    const resp = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+
+    document.getElementById('aiLoading')?.remove();
+
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      addMessage('ai', `⚠️ API Error: ${err.error?.message || resp.status}\n\nMake sure your Anthropic API key is configured.`);
+      return;
+    }
+
+    const data = await resp.json();
+    const reply = data.content?.find(b => b.type === 'text')?.text || '(no response)';
+    addMessage('ai', reply);
+
+  } catch (err) {
+    document.getElementById('aiLoading')?.remove();
+    addMessage('ai', `⚠️ Connection error: ${err.message}`);
+  }
+}
+
+// ─── Utils ────────────────────────────────────────────────────────────────────
+
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// Check backend health on load
+fetch(`${API_BASE}/api/health`)
+  .then(r => r.json())
+  .then(d => {
+    document.getElementById('statusText').textContent = `BACKEND READY · dpkt:${d.dpkt?'✓':'✗'} PIL:${d.pil?'✓':'✗'}`;
+  })
+  .catch(() => {
+    document.getElementById('statusText').textContent = 'BACKEND OFFLINE';
+    document.getElementById('statusDot').style.background = 'var(--red)';
+  });
+</script>
+</body>
+</html>
