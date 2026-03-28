@@ -4,7 +4,7 @@ PacketProbe - PCAP/5View Forensic Analysis Backend
 Steganography detection, RFC analysis, image extraction, AI assistant
 """
 
-import os, io, re, math, json, struct, base64, hashlib, socket, collections, urllib.request, urllib.error
+import os, io, re, math, json, struct, base64, hashlib, socket, collections, urllib.request, urllib.error, subprocess, tempfile, shutil
 import threading, time, tempfile, datetime
 from pathlib import Path
 from flask import Flask, request, jsonify, send_file
@@ -593,6 +593,172 @@ def save_extracted_file(data: bytes, ftype: str, ext: str, offset: int, result: 
     })
 
 
+# ─── Deep Extraction Engine ──────────────────────────────────────────────────
+
+def run_cmd(cmd, timeout=30):
+    """Run a shell command safely, return (stdout, stderr, returncode)."""
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        return r.stdout, r.stderr, r.returncode
+    except subprocess.TimeoutExpired:
+        return '', 'timeout', -1
+    except FileNotFoundError:
+        return '', f'{cmd[0]} not found', -1
+    except Exception as e:
+        return '', str(e), -1
+
+
+def lsb_extract_python(image_bytes: bytes) -> dict:
+    """Pure-Python LSB extraction across all bit planes — zsteg equivalent."""
+    try:
+        import numpy as np
+        img = Image.open(io.BytesIO(image_bytes)).convert('RGB')
+        arr = np.array(img)
+        results = {}
+
+        for channel_idx, channel_name in enumerate(['R', 'G', 'B']):
+            for bit in range(8):
+                bits = ((arr[:, :, channel_idx] >> bit) & 1).flatten()
+                # Pack bits into bytes
+                n = (len(bits) // 8) * 8
+                bits = bits[:n]
+                byte_arr = np.packbits(bits)
+                raw = bytes(byte_arr[:2048])  # first 2KB of extracted data
+
+                # Check for printable text
+                printable = re.findall(rb'[ -~]{6,}', raw)
+                strings_found = [s.decode('ascii', errors='replace') for s in printable]
+
+                # Check for file magic
+                magic = detect_file_magic(raw)
+
+                if strings_found or magic['type'] != 'UNKNOWN':
+                    key = f"{channel_name}_bit{bit}"
+                    results[key] = {
+                        'strings': strings_found[:10],
+                        'file_magic': magic['type'] if magic['type'] != 'UNKNOWN' else None,
+                        'entropy': round(shannon_entropy(raw), 4),
+                        'raw_b64': base64.b64encode(raw[:256]).decode() if magic['type'] != 'UNKNOWN' else None
+                    }
+
+        return {'method': 'python_lsb', 'findings': results, 'error': None}
+    except Exception as e:
+        return {'method': 'python_lsb', 'findings': {}, 'error': str(e)}
+
+
+def run_binwalk(filepath: str) -> dict:
+    """Run binwalk signature scan on a file."""
+    stdout, stderr, rc = run_cmd(['binwalk', '--signature', '--quiet', filepath])
+    findings = []
+    for line in stdout.splitlines():
+        line = line.strip()
+        if line and not line.startswith('DECIMAL') and not line.startswith('---') and line[0].isdigit():
+            parts = line.split(None, 2)
+            if len(parts) >= 3:
+                findings.append({
+                    'offset_dec': parts[0],
+                    'offset_hex': parts[1],
+                    'description': parts[2]
+                })
+    return {'tool': 'binwalk', 'findings': findings, 'raw': stdout[:2000], 'error': stderr[:200] if rc != 0 else None}
+
+
+def run_exiftool(filepath: str) -> dict:
+    """Run exiftool on a file and return all metadata."""
+    stdout, stderr, rc = run_cmd(['exiftool', '-json', filepath])
+    try:
+        meta = json.loads(stdout)
+        if meta:
+            # Flag suspicious fields
+            suspicious = {}
+            for k, v in meta[0].items():
+                val_str = str(v).lower()
+                if any(kw in val_str for kw in ['http', 'password', 'secret', 'key', 'flag', 'hidden', 'cmd', 'eval']):
+                    suspicious[k] = str(v)
+                if any(kw in k.lower() for kw in ['comment', 'description', 'usercomment', 'artist', 'copyright', 'software']):
+                    suspicious[k] = str(v)
+            return {'tool': 'exiftool', 'metadata': meta[0], 'suspicious_fields': suspicious, 'error': None}
+    except Exception:
+        pass
+    return {'tool': 'exiftool', 'metadata': {}, 'suspicious_fields': {}, 'raw': stdout[:1000], 'error': stderr[:200]}
+
+
+def run_strings_deep(filepath: str) -> dict:
+    """Run strings with multiple encodings."""
+    results = {}
+    for enc, flag in [('ascii', '-a'), ('unicode', '-el')]:
+        stdout, _, rc = run_cmd(['strings', '-n', '8', flag, filepath])
+        found = [s.strip() for s in stdout.splitlines() if s.strip()]
+        # Filter for interesting strings
+        interesting = []
+        for s in found:
+            sl = s.lower()
+            if any(kw in sl for kw in [
+                'password', 'passwd', 'secret', 'key=', 'token', 'flag{', 'ctf',
+                'http://', 'https://', 'ftp://', '.onion', 'base64', 'eval(',
+                'powershell', '/bin/sh', 'cmd.exe', 'wget', 'curl'
+            ]):
+                interesting.append(s[:200])
+        results[enc] = {'total': len(found), 'interesting': interesting[:20]}
+    return {'tool': 'strings', 'results': results}
+
+
+def run_steghide_info(filepath: str) -> dict:
+    """Get steghide info without a passphrase (detects steghide-embedded data)."""
+    stdout, stderr, rc = run_cmd(['steghide', 'info', '-p', '', filepath], timeout=10)
+    combined = (stdout + stderr).lower()
+    detected = 'embedded' in combined or 'format' in combined
+    return {
+        'tool': 'steghide',
+        'detected': detected,
+        'output': (stdout + stderr)[:500]
+    }
+
+
+def deep_extract_image(filename: str) -> dict:
+    """Run full extraction suite on a single extracted image."""
+    fpath = EXTRACT_DIR / filename
+    if not fpath.exists():
+        return {'error': 'File not found'}
+
+    with open(str(fpath), 'rb') as f:
+        image_bytes = f.read()
+
+    results = {
+        'filename': filename,
+        'size': len(image_bytes),
+        'entropy': round(shannon_entropy(image_bytes), 4),
+    }
+
+    # Run all tools
+    results['lsb'] = lsb_extract_python(image_bytes)
+    results['binwalk'] = run_binwalk(str(fpath))
+    results['exiftool'] = run_exiftool(str(fpath))
+    results['strings'] = run_strings_deep(str(fpath))
+
+    # Only run steghide on JPEG/BMP (it doesn't support PNG)
+    if filename.lower().endswith(('.jpg', '.jpeg', '.bmp')):
+        results['steghide'] = run_steghide_info(str(fpath))
+
+    # Summarise severity
+    flags = []
+    if results['lsb']['findings']:
+        flags.append(f"LSB: {len(results['lsb']['findings'])} suspicious bit-plane(s)")
+    if results['binwalk']['findings']:
+        flags.append(f"Binwalk: {len(results['binwalk']['findings'])} embedded signature(s)")
+    if results['exiftool'].get('suspicious_fields'):
+        flags.append(f"EXIF: {len(results['exiftool']['suspicious_fields'])} suspicious field(s)")
+    for enc, d in results['strings']['results'].items():
+        if d['interesting']:
+            flags.append(f"Strings ({enc}): {len(d['interesting'])} hits")
+    if results.get('steghide', {}).get('detected'):
+        flags.append("Steghide: embedded data detected")
+
+    results['severity'] = 'HIGH' if len(flags) >= 2 else 'MEDIUM' if flags else 'LOW'
+    results['flags'] = flags
+    return results
+
+
 # ─── Flask Routes ─────────────────────────────────────────────────────────────
 
 @app.route('/')
@@ -650,13 +816,6 @@ def health():
 @app.route('/api/analyze', methods=['POST'])
 def analyze():
     """Main analysis endpoint — accepts multipart FormData OR base64 JSON."""
-    # Clear old extractions
-    for old_file in EXTRACT_DIR.glob('*'):
-        try:
-            old_file.unlink()
-        except Exception:
-            pass
-
     # Accept base64 JSON body (postMessage-safe, used by artifact sandbox)
     if request.is_json:
         body = request.get_json()
@@ -701,6 +860,53 @@ def analyze():
         return jsonify(result)
     except Exception as e:
         return jsonify({'error': str(e), 'filename': fname}), 500
+
+
+@app.route('/api/extract/<filename>', methods=['GET'])
+def extract_image(filename):
+    """Deep stego extraction on a single image."""
+    safe = filename.replace('/', '').replace('\\', '')
+    result = deep_extract_image(safe)
+    return jsonify(result)
+
+
+@app.route('/api/extract_all', methods=['GET'])
+def extract_all():
+    """Run deep extraction on all extracted images."""
+    images = list(EXTRACT_DIR.glob('img_*'))
+    results = []
+    for img in images[:20]:  # cap at 20
+        results.append(deep_extract_image(img.name))
+    return jsonify({'results': results, 'total': len(results)})
+
+
+@app.route('/api/files')
+def list_files():
+    """Return every file currently in the extracted directory with metadata."""
+    files = []
+    for f in sorted(EXTRACT_DIR.iterdir()):
+        if f.is_file():
+            files.append({
+                'filename': f.name,
+                'size': f.stat().st_size,
+                'url': f'/api/image/{f.name}',
+                'download_url': f'/api/download/{f.name}',
+                'is_image': f.suffix.lower() in ('.jpg','.jpeg','.png','.gif','.bmp'),
+            })
+    return jsonify({'files': files, 'total': len(files), 'directory': str(EXTRACT_DIR)})
+
+
+@app.route('/api/clear', methods=['POST'])
+def clear_extractions():
+    """Manually wipe the extracted directory."""
+    removed = 0
+    for f in EXTRACT_DIR.glob('*'):
+        try:
+            f.unlink()
+            removed += 1
+        except Exception:
+            pass
+    return jsonify({'cleared': removed})
 
 
 @app.route('/api/image/<filename>')

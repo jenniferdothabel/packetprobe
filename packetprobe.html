@@ -925,7 +925,12 @@
       <input type="file" id="fileInput" accept=".pcap,.pcapng,.cap,.5vw,.bin,.log">
     </div>
     <div style="display:flex;flex-direction:column;gap:8px;align-items:flex-end">
-      <button class="analyze-btn" id="analyzeBtn" disabled>⚡ ANALYZE</button>
+      <div style="display:flex;gap:8px">
+        <button class="analyze-btn" id="analyzeBtn" disabled>⚡ ANALYZE</button>
+        <button class="analyze-btn" id="clearBtn" onclick="clearExtractions()"
+          style="background:rgba(255,56,96,0.15);color:var(--red);border:1px solid var(--red);box-shadow:none"
+          title="Wipe all extracted files from disk">🗑 CLEAR</button>
+      </div>
       <div style="font-family:var(--mono);font-size:10px;color:var(--text3);text-align:right" id="fileInfo">NO FILE SELECTED</div>
     </div>
   </div>
@@ -1187,6 +1192,7 @@ function renderResults(data) {
   renderCreds(creds);
   renderPackets(packets, stats);
   renderReport(data, violations, stego, images, creds);
+  refreshFileManifest();
 
   document.getElementById('emptyState').style.display = 'none';
   document.getElementById('overviewContent').style.display = 'flex';
@@ -1368,9 +1374,18 @@ function renderImages(images) {
   }
 
   let html = `
-    <div style="margin-bottom:12px;font-family:var(--mono);font-size:11px;color:var(--text2)">
-      ${images.length} image${images.length>1?'s':''} extracted from capture — click any image for details
+    <div style="margin-bottom:12px;display:flex;align-items:center;justify-content:space-between;gap:12px">
+      <span style="font-family:var(--mono);font-size:11px;color:var(--text2)">
+        ${images.length} image${images.length>1?'s':''} extracted — click image for details · click EXTRACT for deep analysis
+      </span>
+      <button onclick="extractAll()" style="padding:6px 16px;background:rgba(255,149,0,0.1);border:1px solid var(--orange);
+        border-radius:6px;color:var(--orange);font-family:var(--mono);font-size:11px;cursor:pointer;
+        letter-spacing:1px;transition:all 0.2s" onmouseover="this.style.background='rgba(255,149,0,0.2)'"
+        onmouseout="this.style.background='rgba(255,149,0,0.1)'">
+        🔬 DEEP EXTRACT ALL
+      </button>
     </div>
+    <div id="extractionResults"></div>
     <div class="image-grid">`;
 
   images.forEach(img => {
@@ -1386,7 +1401,14 @@ function renderImages(images) {
         <div class="img-meta">
           <div class="img-meta-name">${escHtml(img.filename)}</div>
           <div class="img-meta-info">${img.type} · ${(img.size/1024).toFixed(1)}KB${img.dimensions?' · '+img.dimensions:''}</div>
-          <div class="img-meta-info" style="color:${img.entropy>7?'var(--orange)':'var(--text3)'}">H: ${img.entropy}</div>
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-top:4px">
+            <span class="img-meta-info" style="color:${img.entropy>7?'var(--orange)':'var(--text3)'}">H: ${img.entropy}</span>
+            <button onclick="event.stopPropagation();extractOne('${img.filename}')"
+              style="padding:2px 6px;background:rgba(255,149,0,0.1);border:1px solid var(--orange);border-radius:3px;
+                     color:var(--orange);font-family:var(--mono);font-size:8px;cursor:pointer;letter-spacing:1px">
+              EXTRACT
+            </button>
+          </div>
         </div>
       </div>`;
   });
@@ -1625,6 +1647,12 @@ function buildContextSummary(data) {
   const protocols = data.protocols || {};
   const stats = data.stats || {};
 
+  const diskFiles = window._diskFiles || [];
+  const diskNote = diskFiles.length
+    ? `\nDISK-VERIFIED FILES (${diskFiles.length} currently in extracted/ folder):\n` +
+      diskFiles.map(f => `- ${f.filename} (${(f.size/1024).toFixed(1)}KB)${f.is_image?' [image]':''}`).join('\n')
+    : '\nNOTE: No extracted files verified on disk yet.';
+
   return `File: ${data.filename}
 Format: ${stats.format}
 Total Packets: ${stats.total_packets || 0}
@@ -1645,7 +1673,10 @@ ${i.slice(0,5).map(x=>`- ${x.filename} (${x.type}, ${(x.size/1024).toFixed(1)}KB
 DNS QUERIES (${d.length}):
 ${d.slice(0,5).map(x=>`- ${x.name} from ${x.src}`).join('\n')}
 
-SUSPICIOUS STRINGS: ${(data.suspicious_strings||[]).slice(0,3).join(' | ')}`;
+SUSPICIOUS STRINGS: ${(data.suspicious_strings||[]).slice(0,3).join(' | ')}
+${diskNote}
+
+IMPORTANT: Only reference filenames from the DISK-VERIFIED FILES list above when discussing specific files. Do not invent or assume filenames.`;
 }
 
 async function sendChat() {
@@ -1702,6 +1733,220 @@ async function askAI(prompt) {
   } catch (err) {
     document.getElementById('aiLoading')?.remove();
     addMessage('ai', `⚠️ Connection error: ${err.message}\n\nMake sure the backend server is running on port 7734.`);
+  }
+}
+
+// ─── Deep Extraction ─────────────────────────────────────────────────────────
+
+async function extractOne(filename) {
+  showExtractionLoading(`🔬 Running extraction on ${filename}...`);
+  const baseURL = (location.protocol === 'file:') ? 'http://localhost:7734' : '';
+  try {
+    const resp = await fetch(`${baseURL}/api/extract/${encodeURIComponent(filename)}`);
+    const data = await resp.json();
+    renderExtractionResult(data);
+    // Feed result to AI
+    const summary = buildExtractionSummary([data]);
+    chatHistory.push({role: 'user', content: `Deep extraction results for ${filename}:\n${summary}`});
+    await askAI(`Analyze these deep extraction results for ${filename} and tell me if there is confirmed steganographic content or hidden data.`);
+  } catch(e) {
+    showExtractionError(e.message);
+  }
+}
+
+async function extractAll() {
+  showExtractionLoading('🔬 Running deep extraction on all images (binwalk · exiftool · LSB · strings · steghide)...');
+  const baseURL = (location.protocol === 'file:') ? 'http://localhost:7734' : '';
+  try {
+    const resp = await fetch(`${baseURL}/api/extract_all`);
+    const data = await resp.json();
+    renderExtractionResults(data.results);
+    const summary = buildExtractionSummary(data.results);
+    chatHistory.push({role: 'user', content: `Deep extraction completed on ${data.total} images:\n${summary}`});
+    await askAI(`I just ran deep extraction (binwalk, exiftool, LSB analysis, strings, steghide) on all ${data.total} extracted images. Here are the results. Give me a definitive assessment of which files contain confirmed or likely hidden content, and what that content appears to be.`);
+  } catch(e) {
+    showExtractionError(e.message);
+  }
+}
+
+function showExtractionLoading(msg) {
+  const el = document.getElementById('extractionResults');
+  if (!el) return;
+  el.innerHTML = `<div style="padding:12px 16px;background:rgba(255,149,0,0.05);border:1px solid rgba(255,149,0,0.2);
+    border-radius:8px;margin-bottom:16px;font-family:var(--mono);font-size:12px;color:var(--orange);
+    animation:blink 1s infinite">${msg}</div>`;
+}
+
+function showExtractionError(msg) {
+  const el = document.getElementById('extractionResults');
+  if (!el) return;
+  el.innerHTML = `<div style="padding:12px 16px;background:rgba(255,56,96,0.05);border:1px solid rgba(255,56,96,0.2);
+    border-radius:8px;margin-bottom:16px;font-family:var(--mono);font-size:12px;color:var(--red)">
+    ⚠️ Extraction error: ${escHtml(msg)}</div>`;
+}
+
+function renderExtractionResult(r) {
+  renderExtractionResults([r]);
+}
+
+function renderExtractionResults(results) {
+  const el = document.getElementById('extractionResults');
+  if (!el) return;
+
+  const sevColor = {'HIGH':'var(--red)','MEDIUM':'var(--orange)','LOW':'var(--green)'};
+
+  let html = `<div style="margin-bottom:16px">
+    <div style="font-family:var(--head);font-size:13px;letter-spacing:2px;color:var(--cyan);margin-bottom:12px">
+      🔬 DEEP EXTRACTION RESULTS
+    </div>`;
+
+  results.forEach(r => {
+    if (r.error) {
+      html += `<div style="padding:8px 12px;color:var(--red);font-family:var(--mono);font-size:11px">${escHtml(r.error)}</div>`;
+      return;
+    }
+    const sev = r.severity || 'LOW';
+    const color = sevColor[sev] || 'var(--text)';
+
+    html += `<div style="background:var(--bg3);border:1px solid ${r.flags?.length ? 'rgba(255,149,0,0.3)' : 'var(--border)'};
+      border-radius:8px;margin-bottom:10px;overflow:hidden">
+      <div style="padding:10px 14px;background:rgba(0,0,0,0.2);display:flex;align-items:center;justify-content:space-between">
+        <span style="font-family:var(--mono);font-size:11px;color:var(--text)">${escHtml(r.filename)}</span>
+        <span style="font-family:var(--mono);font-size:10px;font-weight:700;color:${color}">${sev}</span>
+      </div>`;
+
+    if (r.flags && r.flags.length > 0) {
+      html += `<div style="padding:8px 14px;border-bottom:1px solid var(--border)">
+        ${r.flags.map(f => `<div style="font-family:var(--mono);font-size:10px;color:var(--orange);margin-bottom:3px">⚠ ${escHtml(f)}</div>`).join('')}
+      </div>`;
+    }
+
+    // Binwalk findings
+    const bw = r.binwalk?.findings || [];
+    if (bw.length > 0) {
+      html += `<div style="padding:8px 14px;border-bottom:1px solid var(--border)">
+        <div style="font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:2px;margin-bottom:6px">BINWALK SIGNATURES</div>
+        ${bw.map(b => `<div style="font-family:var(--mono);font-size:10px;color:var(--cyan);margin-bottom:2px">
+          [0x${b.offset_hex}] ${escHtml(b.description)}</div>`).join('')}
+      </div>`;
+    }
+
+    // LSB findings
+    const lsbF = r.lsb?.findings || {};
+    const lsbKeys = Object.keys(lsbF);
+    if (lsbKeys.length > 0) {
+      html += `<div style="padding:8px 14px;border-bottom:1px solid var(--border)">
+        <div style="font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:2px;margin-bottom:6px">LSB BIT-PLANE ANALYSIS</div>
+        ${lsbKeys.map(k => {
+          const f = lsbF[k];
+          return `<div style="margin-bottom:4px">
+            <span style="font-family:var(--mono);font-size:10px;color:var(--purple)">${k}</span>
+            ${f.file_magic ? `<span style="font-family:var(--mono);font-size:10px;color:var(--red);margin-left:8px">⚠ Magic: ${escHtml(f.file_magic)}</span>` : ''}
+            ${f.strings?.length ? `<div style="font-family:var(--mono);font-size:9px;color:var(--text2);margin-top:2px;margin-left:12px">${f.strings.slice(0,3).map(escHtml).join(' · ')}</div>` : ''}
+          </div>`;
+        }).join('')}
+      </div>`;
+    }
+
+    // EXIF suspicious fields
+    const exifS = r.exiftool?.suspicious_fields || {};
+    if (Object.keys(exifS).length > 0) {
+      html += `<div style="padding:8px 14px;border-bottom:1px solid var(--border)">
+        <div style="font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:2px;margin-bottom:6px">SUSPICIOUS EXIF FIELDS</div>
+        ${Object.entries(exifS).map(([k,v]) =>
+          `<div style="font-family:var(--mono);font-size:10px;margin-bottom:2px">
+            <span style="color:var(--text3)">${escHtml(k)}:</span>
+            <span style="color:var(--orange);margin-left:6px">${escHtml(String(v).substring(0,120))}</span>
+          </div>`).join('')}
+      </div>`;
+    }
+
+    // Interesting strings
+    const strHits = [...(r.strings?.results?.ascii?.interesting || []), ...(r.strings?.results?.unicode?.interesting || [])];
+    if (strHits.length > 0) {
+      html += `<div style="padding:8px 14px;border-bottom:1px solid var(--border)">
+        <div style="font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:2px;margin-bottom:6px">INTERESTING STRINGS</div>
+        ${strHits.slice(0,5).map(s =>
+          `<div style="font-family:var(--mono);font-size:10px;color:var(--yellow);margin-bottom:2px">${escHtml(s)}</div>`).join('')}
+      </div>`;
+    }
+
+    // Steghide
+    if (r.steghide?.detected) {
+      html += `<div style="padding:8px 14px;background:rgba(255,56,96,0.05)">
+        <div style="font-family:var(--mono);font-size:10px;color:var(--red)">
+          ⚠ STEGHIDE: Embedded data structure detected — try: steghide extract -sf ${escHtml(r.filename)}
+        </div>
+      </div>`;
+    }
+
+    html += '</div>';
+  });
+
+  html += '</div>';
+  el.innerHTML = html;
+}
+
+function buildExtractionSummary(results) {
+  return results.map(r => {
+    const bw = (r.binwalk?.findings || []).map(b => `  binwalk[0x${b.offset_hex}]: ${b.description}`).join('\n');
+    const lsb = Object.entries(r.lsb?.findings || {}).map(([k,v]) =>
+      `  lsb_${k}: magic=${v.file_magic||'none'} strings=${v.strings?.slice(0,2).join(',')||'none'}`).join('\n');
+    const exif = Object.entries(r.exiftool?.suspicious_fields || {}).map(([k,v]) => `  exif_${k}: ${String(v).substring(0,80)}`).join('\n');
+    const strs = [...(r.strings?.results?.ascii?.interesting||[]),...(r.strings?.results?.unicode?.interesting||[])].slice(0,5).map(s=>`  string: ${s}`).join('\n');
+    const shide = r.steghide?.detected ? '  steghide: EMBEDDED DATA DETECTED' : '';
+    return `FILE: ${r.filename} | severity=${r.severity} | entropy=${r.entropy}
+flags: ${(r.flags||[]).join(', ')||'none'}
+${bw}${lsb}${exif}${strs}${shide}`.trim();
+  }).join('\n\n');
+}
+
+// ─── File Manifest ───────────────────────────────────────────────────────────
+
+async function refreshFileManifest() {
+  try {
+    const base = (location.protocol === 'file:') ? 'http://localhost:7734' : '';
+    const resp = await fetch(`${base}/api/files`);
+    if (!resp.ok) return;
+    const data = await resp.json();
+    window._diskFiles = data.files || [];
+
+    // Update images tab to show only what's actually on disk
+    const imgContent = document.getElementById('imagesContent');
+    if (imgContent && window._diskFiles.length > 0) {
+      const onDiskHashes = new Set(window._diskFiles.map(f => f.filename));
+      // Mark any image cards whose file is missing from disk
+      imgContent.querySelectorAll('.img-card').forEach(card => {
+        const nameEl = card.querySelector('.img-meta-name');
+        if (nameEl) {
+          const fname = nameEl.textContent.trim();
+          if (!onDiskHashes.has(fname)) {
+            card.style.opacity = '0.4';
+            card.title = 'File no longer on disk';
+          }
+        }
+      });
+    }
+
+    // Show disk status in status bar
+    document.getElementById('statusText').textContent =
+      `ANALYSIS COMPLETE · ${window._diskFiles.length} file(s) on disk`;
+  } catch(e) {
+    // backend may not be running, silently ignore
+  }
+}
+
+async function clearExtractions() {
+  if (!confirm('Clear all extracted files from disk?')) return;
+  try {
+    const base = (location.protocol === 'file:') ? 'http://localhost:7734' : '';
+    await fetch(`${base}/api/clear`, { method: 'POST' });
+    window._diskFiles = [];
+    document.getElementById('statusText').textContent = 'EXTRACTIONS CLEARED';
+    document.getElementById('imagesContent').innerHTML =
+      '<p style="font-family:var(--mono);font-size:12px;color:var(--text3);text-align:center;padding:40px">Extracted files cleared from disk</p>';
+  } catch(e) {
+    alert('Could not reach backend: ' + e.message);
   }
 }
 
