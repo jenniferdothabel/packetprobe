@@ -25,8 +25,10 @@ except ImportError:
 app = Flask(__name__)
 CORS(app)
 
-UPLOAD_DIR = Path("/home/claude/pcap_analyzer/uploads")
-EXTRACT_DIR = Path("/home/claude/pcap_analyzer/extracted")
+# Use directories relative to wherever this script lives
+BASE_DIR = Path(__file__).parent.resolve()
+UPLOAD_DIR = BASE_DIR / "uploads"
+EXTRACT_DIR = BASE_DIR / "extracted"
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 EXTRACT_DIR.mkdir(parents=True, exist_ok=True)
 
