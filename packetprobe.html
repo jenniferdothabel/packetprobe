@@ -1025,6 +1025,13 @@ What would you like to know?</div>
       </div>
     </div>
 
+    <div style="padding:8px 16px;border-bottom:1px solid var(--border);display:flex;gap:8px;align-items:center">
+      <span style="font-family:var(--mono);font-size:9px;color:var(--text3);white-space:nowrap">API KEY</span>
+      <input id="apiKeyInput" type="password" placeholder="sk-ant-... or paste Anthropic key"
+        style="flex:1;background:var(--bg3);border:1px solid var(--border);border-radius:4px;padding:5px 8px;
+               color:var(--text);font-family:var(--mono);font-size:10px;outline:none"
+        onfocus="this.style.borderColor='var(--cyan)'" onblur="this.style.borderColor='var(--border)'">
+    </div>
     <div class="quick-prompts" id="quickPrompts">
       <div class="qp" onclick="askAI('Explain the RFC violations found')">RFC violations</div>
       <div class="qp" onclick="askAI('Is there steganography evidence?')">Stego evidence</div>
@@ -1656,7 +1663,15 @@ async function askAI(prompt) {
   const messages = chatHistory.filter(m => m.role !== 'system').slice(-10);
   const systemMsg = chatHistory.find(m => m.role === 'system');
   
+  const apiKey = document.getElementById('apiKeyInput')?.value?.trim();
+  if (!apiKey) {
+    document.getElementById('aiLoading')?.remove();
+    addMessage('ai', '⚠️ No API key set.\n\nPaste your Anthropic API key into the field above the chat to enable the AI assistant.\n\nGet one at: https://console.anthropic.com');
+    return;
+  }
+
   const body = {
+    api_key: apiKey,
     model: 'claude-sonnet-4-20250514',
     max_tokens: 1000,
     system: systemMsg ? systemMsg.content : 'You are PacketProbe, a network forensics AI assistant. Help the user analyze network capture files and understand security findings.',
@@ -1664,7 +1679,9 @@ async function askAI(prompt) {
   };
 
   try {
-    const resp = await fetch('https://api.anthropic.com/v1/messages', {
+    // Route through local Flask proxy to avoid CORS
+    const proxyURL = (location.protocol === 'file:') ? 'http://localhost:7734/api/chat' : '/api/chat';
+    const resp = await fetch(proxyURL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body)
@@ -1674,7 +1691,7 @@ async function askAI(prompt) {
 
     if (!resp.ok) {
       const err = await resp.json().catch(() => ({}));
-      addMessage('ai', `⚠️ API Error: ${err.error?.message || resp.status}\n\nMake sure your Anthropic API key is configured.`);
+      addMessage('ai', `⚠️ API Error: ${err.error || resp.status}\n\nCheck that your API key is valid.`);
       return;
     }
 
@@ -1684,7 +1701,7 @@ async function askAI(prompt) {
 
   } catch (err) {
     document.getElementById('aiLoading')?.remove();
-    addMessage('ai', `⚠️ Connection error: ${err.message}`);
+    addMessage('ai', `⚠️ Connection error: ${err.message}\n\nMake sure the backend server is running on port 7734.`);
   }
 }
 

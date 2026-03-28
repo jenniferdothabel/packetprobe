@@ -4,7 +4,7 @@ PacketProbe - PCAP/5View Forensic Analysis Backend
 Steganography detection, RFC analysis, image extraction, AI assistant
 """
 
-import os, io, re, math, json, struct, base64, hashlib, socket, collections
+import os, io, re, math, json, struct, base64, hashlib, socket, collections, urllib.request, urllib.error
 import threading, time, tempfile, datetime
 from pathlib import Path
 from flask import Flask, request, jsonify, send_file
@@ -608,6 +608,38 @@ def index():
         'or just open the HTML file directly in your browser.</p>',
         200
     )
+
+
+@app.route('/api/chat', methods=['POST'])
+def chat_proxy():
+    """Proxy Claude API calls server-side to avoid browser CORS restrictions."""
+    body = request.get_json()
+    if not body:
+        return jsonify({'error': 'No body provided'}), 400
+
+    api_key = body.pop('api_key', None)
+    if not api_key:
+        return jsonify({'error': 'No api_key provided in request body'}), 400
+
+    payload = json.dumps(body).encode('utf-8')
+    req = urllib.request.Request(
+        'https://api.anthropic.com/v1/messages',
+        data=payload,
+        headers={
+            'Content-Type': 'application/json',
+            'x-api-key': api_key,
+            'anthropic-version': '2023-06-01',
+        },
+        method='POST'
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            return jsonify(json.loads(resp.read()))
+    except urllib.error.HTTPError as e:
+        error_body = e.read().decode('utf-8', errors='replace')
+        return jsonify({'error': error_body}), e.code
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 
 @app.route('/api/health')
