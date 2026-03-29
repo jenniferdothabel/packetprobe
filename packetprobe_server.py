@@ -4,7 +4,7 @@ PacketProbe - PCAP/5View Forensic Analysis Backend
 Steganography detection, RFC analysis, image extraction, AI assistant
 """
 
-import os, io, re, math, json, struct, base64, hashlib, socket, collections, urllib.request, urllib.error, subprocess, tempfile, shutil
+import os, io, re, math, json, struct, base64, hashlib, socket, collections, urllib.request, urllib.error, subprocess, tempfile, shutil, warnings
 import threading, time, tempfile, datetime
 from pathlib import Path
 from flask import Flask, request, jsonify, send_file
@@ -21,6 +21,11 @@ try:
     PIL_OK = True
 except ImportError:
     PIL_OK = False
+
+# Suppress known harmless deprecation warnings from third-party libs
+warnings.filterwarnings('ignore', message='IP.off is deprecated', category=UserWarning)
+warnings.filterwarnings('ignore', message='.*getdata is deprecated.*', category=DeprecationWarning)
+warnings.filterwarnings('ignore', message='.*get_flattened_data.*', category=DeprecationWarning)
 
 app = Flask(__name__)
 CORS(app)
@@ -106,7 +111,11 @@ def check_lsb_stego(image_bytes: bytes) -> dict:
                 'reason': 'Image too small for reliable LSB analysis'}
     try:
         img = Image.open(io.BytesIO(image_bytes)).convert('RGB')
-        pixels = list(img.getdata())
+        # get_flattened_data is the modern API (Pillow 10+); fall back gracefully
+        if hasattr(img, 'get_flattened_data'):
+            pixels = list(img.get_flattened_data())
+        else:
+            pixels = list(img.getdata())
         sample = pixels[:2000]           # larger sample for reliability
         if len(sample) < 500:
             return {'detected': False, 'lsb_entropy': None,
