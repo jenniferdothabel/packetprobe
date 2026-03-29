@@ -814,6 +814,130 @@
   .rec-title { font-size: 13px; font-weight: 600; color: var(--text); margin-bottom: 4px; }
   .rec-desc { font-family: var(--mono); font-size: 11px; color: var(--text2); line-height: 1.6; }
 
+  /* ── Severity Tiers ── */
+  .sev-high {
+    border-left: 4px solid var(--red);
+    background: rgba(255,56,96,0.05);
+  }
+  .sev-high .sev-icon::before { content: '🔴'; }
+  .sev-high .sev-label { color: var(--red); }
+
+  .sev-medium {
+    border-left: 4px solid var(--orange);
+    background: rgba(255,149,0,0.04);
+  }
+  .sev-medium .sev-icon::before { content: '🟠'; }
+  .sev-medium .sev-label { color: var(--orange); }
+
+  .sev-low-medium {
+    border-left: 4px solid var(--yellow);
+    background: rgba(255,214,10,0.03);
+  }
+  .sev-low-medium .sev-icon::before { content: '🟡'; }
+  .sev-low-medium .sev-label { color: var(--yellow); }
+
+  .sev-info {
+    border-left: 4px solid var(--text3);
+    background: rgba(74,106,136,0.05);
+  }
+  .sev-info .sev-icon::before { content: '⚪'; }
+  .sev-info .sev-label { color: var(--text3); }
+
+  .sev-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 10px;
+    border-radius: 20px;
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 1px;
+  }
+  .sev-badge.high   { background: rgba(255,56,96,0.15);  color: var(--red);    border: 1px solid rgba(255,56,96,0.4); }
+  .sev-badge.medium { background: rgba(255,149,0,0.12);  color: var(--orange); border: 1px solid rgba(255,149,0,0.35); }
+  .sev-badge.low-medium { background: rgba(255,214,10,0.1); color: var(--yellow); border: 1px solid rgba(255,214,10,0.3); }
+  .sev-badge.info   { background: rgba(74,106,136,0.12); color: var(--text2);  border: 1px solid rgba(74,106,136,0.3); }
+  .sev-badge.low    { background: rgba(74,106,136,0.12); color: var(--text2);  border: 1px solid rgba(74,106,136,0.3); }
+
+  /* Verify panel (collapsible how-to-verify for stego) */
+  .verify-panel {
+    margin-top: 12px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+  }
+  .verify-toggle {
+    width: 100%;
+    padding: 8px 14px;
+    background: rgba(0,212,255,0.05);
+    border: none;
+    color: var(--cyan);
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 1px;
+    cursor: pointer;
+    text-align: left;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    transition: background 0.2s;
+  }
+  .verify-toggle:hover { background: rgba(0,212,255,0.10); }
+  .verify-body {
+    display: none;
+    padding: 12px 14px;
+    background: var(--bg3);
+    display: none;
+  }
+  .verify-body.open { display: block; }
+  .cmd-block {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 8px 12px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--green);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 6px;
+    word-break: break-all;
+  }
+  .copy-btn {
+    flex-shrink: 0;
+    padding: 2px 8px;
+    background: rgba(0,255,159,0.1);
+    border: 1px solid var(--green2);
+    border-radius: 3px;
+    color: var(--green);
+    font-family: var(--mono);
+    font-size: 9px;
+    cursor: pointer;
+    transition: all 0.15s;
+    white-space: nowrap;
+  }
+  .copy-btn:hover { background: rgba(0,255,159,0.2); }
+
+  /* Credential context badges */
+  .ctx-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-family: var(--mono);
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 1px;
+  }
+  .ctx-POST      { background: rgba(255,56,96,0.15);  color: var(--red);    border: 1px solid rgba(255,56,96,0.3); }
+  .ctx-HTTP      { background: rgba(255,149,0,0.12);  color: var(--orange); border: 1px solid rgba(255,149,0,0.3); }
+  .ctx-HTTP_URL  { background: rgba(255,56,96,0.15);  color: var(--red);    border: 1px solid rgba(255,56,96,0.3); }
+  .ctx-HTTP_POST { background: rgba(255,56,96,0.15);  color: var(--red);    border: 1px solid rgba(255,56,96,0.3); }
+  .ctx-cookie    { background: rgba(255,149,0,0.12);  color: var(--orange); border: 1px solid rgba(255,149,0,0.3); }
+  .ctx-default   { background: rgba(74,106,136,0.12); color: var(--text2);  border: 1px solid rgba(74,106,136,0.3); }
+
   /* ── Scrollbars ── */
   ::-webkit-scrollbar { width: 6px; height: 6px; }
   ::-webkit-scrollbar-track { background: var(--bg2); }
@@ -1275,6 +1399,37 @@ function renderOverview(data, stats, violations, stego, images, creds) {
   charts.innerHTML = protoHTML + dnsHTML;
 }
 
+function sevClass(sev) {
+  const map = { critical:'high', warning:'medium', info:'info', 'LOW-MEDIUM':'low-medium', HIGH:'high', MEDIUM:'medium', LOW:'info' };
+  return map[sev] || 'info';
+}
+
+function sevLabel(sev) {
+  const map = { critical:'HIGH', warning:'MEDIUM', info:'INFO', 'LOW-MEDIUM':'LOW-MEDIUM', HIGH:'HIGH', MEDIUM:'MEDIUM', LOW:'LOW' };
+  return map[sev] || 'INFO';
+}
+
+function sevActionText(sev) {
+  const sc = sevClass(sev);
+  if (sc === 'high')       return 'Requires immediate investigation';
+  if (sc === 'medium')     return 'Warrants follow-up';
+  if (sc === 'low-medium') return 'Monitor — low priority';
+  return 'Informational';
+}
+
+function copyToClipboard(text, btn) {
+  navigator.clipboard.writeText(text).then(() => {
+    const orig = btn.textContent;
+    btn.textContent = 'COPIED';
+    setTimeout(() => btn.textContent = orig, 1500);
+  });
+}
+
+function toggleVerify(id) {
+  const el = document.getElementById(id);
+  if (el) el.classList.toggle('open');
+}
+
 function renderViolations(violations) {
   const el = document.getElementById('violationsContent');
   if (violations.length === 0) {
@@ -1288,7 +1443,7 @@ function renderViolations(violations) {
     grouped[v.type].push(v);
   });
 
-  const severity = {
+  const sevMap = {
     TCP_XMAS_SCAN: 'critical', TCP_NULL_SCAN: 'critical',
     RFC793_SYN_FIN: 'critical', ICMP_TUNNELING_SUSPECT: 'critical',
     DNS_TUNNELING_SUSPECT: 'critical', RFC3514_EVIL_BIT: 'critical',
@@ -1297,31 +1452,57 @@ function renderViolations(violations) {
   };
 
   const descriptions = {
-    TCP_XMAS_SCAN: 'XMAS scan sends packets with FIN, PSH, and URG flags set simultaneously — a classic port scanning technique used to evade stateless firewalls.',
-    TCP_NULL_SCAN: 'NULL scan sends packets with no TCP flags set. RFC 793 mandates at minimum one flag; this is a stealth scanning technique.',
-    RFC793_SYN_FIN: 'RFC 793 prohibits simultaneous SYN+FIN flags. This combination is used in OS fingerprinting and evasion attacks.',
-    ICMP_TUNNELING_SUSPECT: 'ICMP payloads exceeding normal size (>64 bytes) may indicate data exfiltration via ICMP tunneling (e.g., iodine, ptunnel).',
-    DNS_TUNNELING_SUSPECT: 'Excessively long DNS query names are a hallmark of DNS tunneling tools like dnscat2, iodine, or DNScat.',
-    RFC3514_EVIL_BIT: 'RFC 3514 (April Fools) "evil bit" set. In practice, some OS fingerprinting tools or malformed stacks set this reserved IP bit.',
-    RFC791_TTL_ZERO: 'RFC 791 states TTL must be decremented and packets with TTL=0 must be dropped. A TTL of 0 at origin is a protocol violation.',
-    RFC791_FRAGMENT_OVERLAP: 'Overlapping IP fragments can be used to bypass IDS/IPS systems by exploiting fragment reassembly ambiguities.',
-    RFC793_URG_ZERO_POINTER: 'When the URG flag is set, RFC 793 requires a non-zero urgent pointer to indicate the urgent data boundary.',
-    RFC1122_LOOPBACK_ESCAPE: 'RFC 1122 §3.2.1.3 requires loopback (127.x.x.x) traffic stay within the loopback interface — external use suggests spoofing.',
+    TCP_XMAS_SCAN: 'FIN+PSH+URG flags set simultaneously — classic stealth port scan to evade stateless firewalls.',
+    TCP_NULL_SCAN: 'No TCP flags set. RFC 793 requires at least one flag; used as a stealth scanning technique.',
+    RFC793_SYN_FIN: 'SYN and FIN set together — prohibited by RFC 793. Used in OS fingerprinting and evasion.',
+    ICMP_TUNNELING_SUSPECT: 'Oversized ICMP payload (>64 bytes). May indicate data exfiltration via ICMP tunneling.',
+    DNS_TUNNELING_SUSPECT: 'DNS query with encoded/excessively long labels — hallmark of dnscat2, iodine, or similar tools.',
+    RFC3514_EVIL_BIT: 'Reserved IP header bit set. Used by some OS fingerprinting tools or malformed stacks.',
+    RFC791_TTL_ZERO: 'IP TTL=0 at origin. RFC 791 requires packets with TTL=0 to be dropped — protocol violation.',
+    RFC791_FRAGMENT_OVERLAP: 'Overlapping IP fragments — classic IDS/IPS evasion technique.',
+    RFC793_URG_ZERO_POINTER: 'URG flag set but urgent pointer is zero — violates RFC 793.',
+    RFC1122_LOOPBACK_ESCAPE: 'Loopback address (127.x.x.x) used outside loopback interface — suggests address spoofing.',
+  };
+
+  const actionMap = {
+    TCP_XMAS_SCAN: 'Block SYN/FIN/XMAS scan patterns at perimeter firewall. Alert on repeated scanning from single source.',
+    TCP_NULL_SCAN: 'Block NULL scan packets at perimeter. Investigate source IP for broader reconnaissance activity.',
+    RFC793_SYN_FIN: 'Drop SYN+FIN packets at firewall. Investigate source for OS fingerprinting or evasion attempts.',
+    ICMP_TUNNELING_SUSPECT: 'Inspect ICMP payload content. Consider blocking ICMP > 64 bytes at perimeter egress.',
+    DNS_TUNNELING_SUSPECT: 'Inspect full DNS query payload. Check source against threat intel. Consider DNS RPZ filtering.',
+    RFC3514_EVIL_BIT: 'Low priority — investigate only if combined with other anomalies from the same source.',
+    RFC791_TTL_ZERO: 'Investigate source — crafted packets with TTL=0 are uncommon outside scanning tools.',
+    RFC791_FRAGMENT_OVERLAP: 'Ensure IPS/NGFW performs full fragment reassembly before inspection.',
+    RFC793_URG_ZERO_POINTER: 'Monitor source for other TCP anomalies. Low risk in isolation.',
+    RFC1122_LOOPBACK_ESCAPE: 'Investigate source — spoofed loopback addresses suggest crafted packet injection.',
   };
 
   let html = '';
   Object.entries(grouped).forEach(([type, items]) => {
-    const sev = severity[type] || 'info';
+    const rawSev = sevMap[type] || 'info';
+    const sc = sevClass(rawSev);
+    const sl = sevLabel(rawSev);
     const desc = descriptions[type] || 'Protocol violation detected.';
+    const action = actionMap[type] || 'Investigate source and context.';
     html += `
-      <div class="finding ${sev}">
-        <div class="finding-type">${type} — ${items.length} OCCURRENCE${items.length>1?'S':''}</div>
-        <div class="finding-detail">
-          <p style="margin-bottom:6px">${desc}</p>
-          <p style="color:var(--text3);font-size:11px">
-            Affected packets: ${items.slice(0,5).map(i=>`#${i.pkt}`).join(', ')}${items.length>5?' ...':''}
+      <div class="card sev-${sc}" style="margin-bottom:10px;border-left:4px solid var(--${sc==='high'?'red':sc==='medium'?'orange':sc==='low-medium'?'yellow':'text3'})">
+        <div class="card-header" style="padding:10px 16px">
+          <div style="display:flex;align-items:center;gap:10px;flex:1">
+            <span class="sev-badge ${sc}">${sl}</span>
+            <span style="font-family:var(--mono);font-size:12px;font-weight:700;letter-spacing:1px;color:var(--text)">${type}</span>
+          </div>
+          <span style="font-family:var(--mono);font-size:10px;color:var(--text3)">${items.length} occurrence${items.length>1?'s':''}</span>
+        </div>
+        <div class="card-body" style="padding:12px 16px">
+          <p style="font-size:13px;color:var(--text2);margin-bottom:8px">${desc}</p>
+          <p style="font-family:var(--mono);font-size:11px;color:var(--text3);margin-bottom:6px">
+            Packets: ${items.slice(0,8).map(i=>'#'+i.pkt).join(', ')}${items.length>8?' …':''}
           </p>
-          ${items[0].detail ? `<p style="margin-top:4px;color:var(--text2)">Detail: ${escHtml(items[0].detail)}</p>` : ''}
+          ${items[0].detail ? `<p style="font-family:var(--mono);font-size:11px;color:var(--text2);margin-bottom:8px">${escHtml(items[0].detail)}</p>` : ''}
+          <div style="display:flex;align-items:center;gap:8px;padding:7px 10px;background:rgba(0,0,0,0.2);border-radius:5px;border-left:2px solid var(--${sc==='high'?'red':sc==='medium'?'orange':'text3'})">
+            <span style="font-size:14px">${sc==='high'?'🛑':sc==='medium'?'⚠️':'ℹ️'}</span>
+            <span style="font-family:var(--mono);font-size:11px;color:var(--text2)">${action}</span>
+          </div>
         </div>
       </div>`;
   });
@@ -1336,30 +1517,107 @@ function renderStego(stego) {
   }
 
   let html = `
-    <div class="finding critical" style="margin-bottom:16px">
-      <div class="finding-type">⚠️ ${stego.length} STEGANOGRAPHIC SUSPECT${stego.length>1?'S':''} DETECTED</div>
-      <div class="finding-detail">The following files exhibit characteristics consistent with steganographic content: high LSB entropy, suspicious EXIF data, or statistical anomalies.</div>
+    <div class="card sev-high" style="margin-bottom:16px;border-left:4px solid var(--red)">
+      <div class="card-header" style="padding:10px 16px">
+        <span class="sev-badge high">HIGH</span>
+        <span style="font-family:var(--mono);font-size:12px;font-weight:700;letter-spacing:1px;color:var(--text);margin-left:10px">
+          ${stego.length} STEGANOGRAPHY SUSPECT${stego.length>1?'S':''}
+        </span>
+      </div>
+      <div class="card-body" style="padding:10px 16px">
+        <p style="font-size:13px;color:var(--text2);margin-bottom:6px">
+          These images exhibit anomalous LSB entropy patterns consistent with steganographic tools.
+          <strong style="color:var(--yellow)"> This is a heuristic finding — confirmation with a dedicated tool is required before drawing conclusions.</strong>
+        </p>
+        <div style="display:flex;align-items:center;gap:8px;padding:7px 10px;background:rgba(0,0,0,0.2);border-radius:5px;border-left:2px solid var(--orange)">
+          <span style="font-size:14px">⚠️</span>
+          <span style="font-family:var(--mono);font-size:11px;color:var(--text2)">High LSB entropy alone does NOT confirm hidden data — compressed images naturally produce high LSB randomness. Use the verification commands below to confirm.</span>
+        </div>
+      </div>
     </div>`;
 
-  stego.forEach(s => {
+  stego.forEach((s, idx) => {
     const lsb = s.details || {};
     const exif = s.exif || {};
+    const fname = s.file;
+    const verifyId = 'verify-' + idx;
+
+    // Determine signal strength for this specific image
+    const isLowEntropy = lsb.lsb_entropy && lsb.lsb_entropy < 0.993;
+    const signalLabel = isLowEntropy
+      ? '⚡ STRONGEST CANDIDATE — low overall entropy + high LSB'
+      : 'LSB entropy above threshold';
+
+    const cmds = [
+      { label: 'zsteg (PNG/BMP — best for LSB)',    cmd: 'zsteg ' + fname },
+      { label: 'zsteg deep scan',                   cmd: 'zsteg -a ' + fname },
+      { label: 'stegdetect (JPEG)',                  cmd: 'stegdetect ' + fname },
+      { label: 'binwalk (embedded files)',           cmd: 'binwalk -e ' + fname },
+      { label: 'steghide extract (try empty pass)',  cmd: "steghide extract -sf " + fname + " -p ''" },
+      { label: 'strings (printable content)',        cmd: 'strings -n 8 ' + fname + ' | head -50' },
+    ];
+
     html += `
-      <div class="card" style="margin-bottom:12px">
-        <div class="card-header">
-          <span class="card-title">🔍 ${escHtml(s.file)}</span>
-          <span class="badge badge-red">${s.type}</span>
-        </div>
-        <div class="card-body">
-          <table class="data-table">
-            <tr><td style="color:var(--text3);width:160px">LSB Entropy</td><td style="color:${lsb.detected?'var(--red)':'var(--green)'}">${lsb.lsb_entropy || 'N/A'} ${lsb.detected?'⚠️ HIGH':''}</td></tr>
-            <tr><td style="color:var(--text3)">LSB Analysis</td><td>${escHtml(lsb.reason || 'N/A')}</td></tr>
-            <tr><td style="color:var(--text3)">Suspicious EXIF</td><td style="color:${exif.has_hidden_strings?'var(--red)':'var(--text3)'}">${exif.has_hidden_strings ? '⚠️ YES — Hidden strings detected' : 'None found'}</td></tr>
-            ${exif.suspicious_exif && exif.suspicious_exif.length > 0 ? `<tr><td style="color:var(--text3)">EXIF Strings</td><td style="color:var(--red)">${exif.suspicious_exif.map(escHtml).join('<br>')}</td></tr>` : ''}
-          </table>
-          <div style="margin-top:10px;font-family:var(--mono);font-size:11px;color:var(--text3)">
-            Recommended: Run zsteg, stegdetect, or binwalk on this file for deeper analysis.
+      <div class="card" style="margin-bottom:10px;border-left:4px solid var(--red)">
+        <div class="card-header" style="padding:10px 16px">
+          <div style="display:flex;align-items:center;gap:10px;flex:1;min-width:0">
+            <span class="sev-badge high">SUSPECT</span>
+            <span style="font-family:var(--mono);font-size:12px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(fname)}</span>
           </div>
+          ${isLowEntropy ? '<span style="font-family:var(--mono);font-size:9px;color:var(--yellow);white-space:nowrap">⚡ TOP CANDIDATE</span>' : ''}
+        </div>
+        <div class="card-body" style="padding:12px 16px">
+          <table class="data-table" style="margin-bottom:10px">
+            <tr>
+              <td style="color:var(--text3);width:140px">LSB Entropy</td>
+              <td style="color:var(--red);font-family:var(--mono)">${lsb.lsb_entropy || 'N/A'}
+                <span style="font-size:10px;color:var(--text3);margin-left:8px">(threshold: 0.98)</span>
+              </td>
+            </tr>
+            <tr>
+              <td style="color:var(--text3)">Assessment</td>
+              <td style="color:var(--text2);font-size:12px">${escHtml(lsb.reason || 'N/A')}</td>
+            </tr>
+            ${isLowEntropy ? '<tr><td style="color:var(--text3)">Signal Type</td><td style="color:var(--yellow);font-size:12px">⚡ Low overall entropy + high LSB — strongest steganography indicator</td></tr>' : ''}
+            <tr>
+              <td style="color:var(--text3)">EXIF Anomaly</td>
+              <td style="color:${exif.has_hidden_strings?'var(--red)':'var(--text3)'}">${exif.has_hidden_strings ? '⚠️ Suspicious strings found' : 'None'}</td>
+            </tr>
+          </table>
+
+          <div class="verify-panel">
+            <button class="verify-toggle" onclick="toggleVerify('${verifyId}')">
+              <span>🔬</span> HOW TO VERIFY — click to expand terminal commands
+              <span style="margin-left:auto;opacity:0.5">▼</span>
+            </button>
+            <div class="verify-body" id="${verifyId}">
+              <p style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid var(--border)">
+                Run these commands after downloading the file. Results are definitive — PacketProbe's LSB flag is a first-pass indicator only.
+              </p>
+              ${cmds.map(c => `
+                <div class="cmd-block">
+                  <div>
+                    <div style="font-size:9px;color:var(--text3);margin-bottom:3px;letter-spacing:1px">${c.label}</div>
+                    <div>${escHtml(c.cmd)}</div>
+                  </div>
+                  <button class="copy-btn" onclick="copyToClipboard(${JSON.stringify(c.cmd)}, this)">COPY</button>
+                </div>`).join('')}
+              <div style="margin-top:10px;padding:8px 10px;background:rgba(0,212,255,0.05);border-radius:4px;border:1px solid var(--border)">
+                <p style="font-family:var(--mono);font-size:10px;color:var(--text3);line-height:1.7">
+                  <strong style="color:var(--cyan)">Interpreting results:</strong><br>
+                  zsteg finding text/binary data → strong confirmation<br>
+                  steghide extracting a file → confirmed payload<br>
+                  binwalk finding signatures → embedded file present<br>
+                  No findings from any tool → likely JPEG compression artifact, not stego
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <a href="${API_BASE}/api/image/${fname}" download
+            style="display:inline-block;margin-top:10px;padding:5px 14px;background:rgba(0,212,255,0.08);border:1px solid var(--cyan);border-radius:4px;color:var(--cyan);text-decoration:none;font-family:var(--mono);font-size:10px;letter-spacing:1px">
+            ⬇ DOWNLOAD FOR ANALYSIS
+          </a>
         </div>
       </div>`;
   });
@@ -1443,6 +1701,41 @@ function showImageDetail(img) {
   document.body.insertAdjacentHTML('beforeend', html);
 }
 
+function credContextInfo(ctx) {
+  // Returns { sev, label, explanation, action } based on transmission context
+  const c = (ctx || '').toUpperCase();
+  if (c.includes('POST') || c.includes('HTTP_POST')) return {
+    sev: 'high',
+    label: 'POST BODY',
+    explanation: 'Credential submitted in an unencrypted HTTP POST body — transmitted in plaintext, visible to anyone on the network path.',
+    action: 'Enforce HTTPS on all forms. Rotate credential immediately.'
+  };
+  if (c.includes('URL') || c.includes('HTTP_URL')) return {
+    sev: 'high',
+    label: 'URL PARAMETER',
+    explanation: 'Credential embedded in URL — logged by proxies, servers, and browser history in addition to being plaintext on the wire.',
+    action: 'Move credentials to POST body or Authorization header. Rotate immediately.'
+  };
+  if (c.includes('COOKIE')) return {
+    sev: 'medium',
+    label: 'COOKIE',
+    explanation: 'Session cookie transmitted over unencrypted HTTP — susceptible to interception and session hijacking.',
+    action: 'Set Secure flag on cookies. Enforce HTTPS.'
+  };
+  if (c.includes('HTTP')) return {
+    sev: 'medium',
+    label: 'HTTP',
+    explanation: 'Credential found in unencrypted HTTP traffic — exact context unclear but transmitted in plaintext.',
+    action: 'Enforce HTTPS. Investigate which endpoint is sending this.'
+  };
+  return {
+    sev: 'info',
+    label: ctx || 'UNKNOWN',
+    explanation: 'Credential-like string detected in packet payload.',
+    action: 'Investigate context and source.'
+  };
+}
+
 function renderCreds(creds) {
   const el = document.getElementById('credsContent');
   if (creds.length === 0) {
@@ -1450,25 +1743,55 @@ function renderCreds(creds) {
     return;
   }
 
-  let html = `
-    <div class="finding critical" style="margin-bottom:16px">
-      <div class="finding-type">🔑 ${creds.length} CREDENTIAL EXPOSURE${creds.length>1?'S':''} FOUND</div>
-      <div class="finding-detail">Cleartext credentials or sensitive tokens detected in packet payloads. This represents a critical security risk.</div>
-    </div>
-    <table class="data-table" style="margin-top:0">
-      <thead><tr><th>TYPE</th><th>VALUE</th><th>CONTEXT</th><th>SOURCE</th></tr></thead>
-      <tbody>`;
-
-  creds.forEach(c => {
-    html += `<tr>
-      <td><span class="badge badge-red">${escHtml(c.type || 'UNKNOWN')}</span></td>
-      <td style="font-family:var(--mono);color:var(--red);max-width:200px;word-break:break-all">${escHtml((c.string||'').substring(0,80))}</td>
-      <td style="color:var(--text3)">${escHtml(c.context || '')}</td>
-      <td style="color:var(--text3);font-family:var(--mono)">${escHtml(c.src || '')}</td>
-    </tr>`;
+  // Sort by severity: POST/URL first, then HTTP, then unknown
+  const sevOrder = { high: 0, medium: 1, info: 2 };
+  const sorted = [...creds].sort((a, b) => {
+    const ai = sevOrder[credContextInfo(a.context).sev] ?? 2;
+    const bi = sevOrder[credContextInfo(b.context).sev] ?? 2;
+    return ai - bi;
   });
 
-  html += '</tbody></table>';
+  let html = `
+    <div class="card sev-high" style="margin-bottom:16px;border-left:4px solid var(--red)">
+      <div class="card-header" style="padding:10px 16px">
+        <span class="sev-badge high">HIGH</span>
+        <span style="font-family:var(--mono);font-size:12px;font-weight:700;letter-spacing:1px;color:var(--text);margin-left:10px">
+          🔑 ${creds.length} CREDENTIAL EXPOSURE${creds.length>1?'S':''}
+        </span>
+      </div>
+      <div class="card-body" style="padding:10px 16px">
+        <p style="font-size:13px;color:var(--text2)">Cleartext credentials detected in packet payloads. Each entry below shows the transmission context and specific risk.</p>
+      </div>
+    </div>`;
+
+  sorted.forEach(c => {
+    const ctx = credContextInfo(c.context);
+    const sc = ctx.sev;
+    const borderColor = sc === 'high' ? 'var(--red)' : sc === 'medium' ? 'var(--orange)' : 'var(--text3)';
+    html += `
+      <div class="card" style="margin-bottom:10px;border-left:4px solid ${borderColor}">
+        <div class="card-header" style="padding:10px 16px;flex-wrap:wrap;gap:8px">
+          <div style="display:flex;align-items:center;gap:8px;flex:1;min-width:0">
+            <span class="sev-badge ${sc}">${sc.toUpperCase()}</span>
+            <span class="ctx-badge ctx-${(c.context||'default').replace(/[^a-zA-Z]/g,'_')}">${escHtml(ctx.label)}</span>
+            <span style="font-family:var(--mono);font-size:10px;color:var(--text3)">${escHtml(c.type || 'UNKNOWN')}</span>
+          </div>
+          <span style="font-family:var(--mono);font-size:10px;color:var(--text3)">${escHtml(c.src || '')}</span>
+        </div>
+        <div class="card-body" style="padding:12px 16px">
+          <div class="cmd-block" style="margin-bottom:10px">
+            <div style="word-break:break-all;color:var(--red)">${escHtml((c.string||'').substring(0,120))}</div>
+            <button class="copy-btn" onclick="copyToClipboard(${JSON.stringify(c.string||'')}, this)">COPY</button>
+          </div>
+          <p style="font-size:12px;color:var(--text2);margin-bottom:6px">${ctx.explanation}</p>
+          <div style="display:flex;align-items:flex-start;gap:8px;padding:6px 10px;background:rgba(0,0,0,0.2);border-radius:4px;border-left:2px solid ${borderColor}">
+            <span style="font-size:13px;flex-shrink:0">${sc==='high'?'🛑':'⚠️'}</span>
+            <span style="font-family:var(--mono);font-size:11px;color:var(--text2)">${ctx.action}</span>
+          </div>
+        </div>
+      </div>`;
+  });
+
   el.innerHTML = html;
 }
 
