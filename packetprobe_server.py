@@ -74,29 +74,65 @@ def extract_strings(data: bytes, min_len=6) -> list:
     pattern = rb'[ -~]{%d,}' % min_len
     return [m.group().decode('ascii', errors='replace') for m in re.finditer(pattern, data)]
 
+# EXIF field values that are common benign encoder signatures — do not flag these
+BENIGN_EXIF_COMMENTS = {
+    'gd-jpeg', 'ijg jpeg', 'adobe photoshop', 'gimp', 'imagemagick',
+    'paint.net', 'microsoft', 'apple', 'canon', 'nikon', 'sony',
+    'exif_ifd', 'picasa', 'lightroom', 'darktable', 'rawtherapee',
+}
+
+# SSH / crypto algorithm name fragments that match @ but are NOT credentials
+SSH_ALGO_PATTERNS = re.compile(
+    r'@(?:libssh|openssh|ssh\.com|ietf\.org|putty\.projects|bitvise'
+    r'|vandyke|ssh-keygen|secsh|openssh\.com|comcast\.net'
+    r'|googlecode|tectia|winscp)',
+    re.IGNORECASE
+)
+
+
 def check_lsb_stego(image_bytes: bytes) -> dict:
-    """Basic LSB steganography detection in images."""
+    """LSB steganography detection with size gate and raised threshold.
+
+    Natural JPEG DCT encoding randomises LSBs, so entropy near 1.0 is
+    expected for *any* JPEG.  We therefore:
+      - Skip images under 5 KB (too few pixels for reliable stats)
+      - Require entropy > 0.98 AND pixel count > 500 before flagging
+      - Report entropy honestly so analysts can judge for themselves
+    """
     if not PIL_OK:
         return {'detected': False, 'reason': 'PIL not available'}
+    if len(image_bytes) < 5120:          # < 5 KB — not enough data
+        return {'detected': False, 'lsb_entropy': None,
+                'reason': 'Image too small for reliable LSB analysis'}
     try:
         img = Image.open(io.BytesIO(image_bytes)).convert('RGB')
         pixels = list(img.getdata())
-        lsbs = bytes([p[c] & 1 for p in pixels[:1000] for c in range(3)])
+        sample = pixels[:2000]           # larger sample for reliability
+        if len(sample) < 500:
+            return {'detected': False, 'lsb_entropy': None,
+                    'reason': 'Too few pixels for reliable LSB analysis'}
+        lsbs = bytes([p[c] & 1 for p in sample for c in range(3)])
         ent = shannon_entropy(lsbs)
-        # High entropy in LSBs suggests random/hidden data
-        suspicious = ent > 0.95
+        # Raised threshold — JPEG DCT naturally produces high LSB entropy
+        # Only flag at 0.98+ AND require the image to be a reasonable size
+        suspicious = ent > 0.98 and len(image_bytes) > 10240
+        reason = (
+            'LSB entropy normal for compressed image' if ent <= 0.95
+            else 'LSB entropy elevated — possible stego (verify with zsteg)'
+            if suspicious
+            else 'LSB entropy high but within expected range for JPEG/compressed image'
+        )
         return {
             'detected': suspicious,
             'lsb_entropy': round(ent, 4),
-            'reason': 'High LSB entropy suggests embedded data' if suspicious else 'LSB entropy normal'
+            'reason': reason
         }
     except Exception as e:
         return {'detected': False, 'reason': str(e)}
 
 def check_exif_stego(image_bytes: bytes) -> dict:
-    """Check EXIF data for hidden content."""
+    """Check EXIF data for hidden content, skipping known-benign encoder comments."""
     findings = []
-    # Look for EXIF marker in JPEG
     if image_bytes[:2] == b'\xff\xd8':
         i = 2
         while i < len(image_bytes) - 4:
@@ -106,7 +142,18 @@ def check_exif_stego(image_bytes: bytes) -> dict:
                 exif_data = image_bytes[i+4:i+2+length]
                 strs = extract_strings(exif_data, 8)
                 for s in strs:
-                    if any(kw in s.lower() for kw in ['http','password','secret','key','flag','hidden']):
+                    sl = s.lower()
+                    # Skip whitelisted benign encoder/software comments
+                    if any(benign in sl for benign in BENIGN_EXIF_COMMENTS):
+                        continue
+                    # Skip SSH/crypto algorithm names containing @
+                    if '@' in s and SSH_ALGO_PATTERNS.search(s):
+                        continue
+                    # Only flag on strong suspicious keywords
+                    if any(kw in sl for kw in [
+                        'password', 'passwd', 'secret', 'flag{', 'hidden',
+                        'eval(', 'base64', 'powershell', 'cmd.exe',
+                    ]):
                         findings.append(s[:200])
                 break
             if i+3 < len(image_bytes):
@@ -446,21 +493,50 @@ def parse_http_payload(data: bytes, src_ip, dst_ip, result):
         pass
 
 
+# Password-field values that are almost certainly false positives
+FP_PASSWORD_PATTERNS = re.compile(
+    r'^(?:null|undefined|none|true|false|function\(|function |var |'
+    r'return |this\.|document\.|window\.|0x[0-9a-f]+|[\[\]{}<>]).*',
+    re.IGNORECASE
+)
+
 def scan_for_credentials(data: bytes, src_ip, dst_ip, result):
-    """Scan payload for credential patterns."""
+    """Scan payload for credential patterns, filtering known false-positive patterns."""
     text = data.decode('latin-1', errors='replace')
-    patterns = [
+
+    # Non-email credential patterns
+    cred_patterns = [
         (r'(?i)password[=:\s]+([^\s&\r\n]{4,64})', 'password'),
         (r'(?i)passwd[=:\s]+([^\s&\r\n]{4,64})', 'passwd'),
         (r'(?i)api[_-]?key[=:\s]+([^\s&\r\n]{8,64})', 'api_key'),
         (r'(?i)secret[=:\s]+([^\s&\r\n]{4,64})', 'secret'),
         (r'(?i)token[=:\s]+([^\s&\r\n]{8,128})', 'token'),
-        (r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', 'email'),
     ]
-    for pattern, ptype in patterns:
+    for pattern, ptype in cred_patterns:
         matches = re.findall(pattern, text)
         for m in matches[:3]:
-            result['credentials'].append({'type': ptype, 'string': str(m)[:200], 'src': src_ip})
+            val = str(m).strip()
+            # Drop obvious JS/code false positives
+            if FP_PASSWORD_PATTERNS.match(val):
+                continue
+            if len(val) < 4:
+                continue
+            result['credentials'].append({'type': ptype, 'string': val[:200], 'src': src_ip})
+
+    # Email pattern — separate pass with SSH algo exclusion
+    email_re = re.compile(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}')
+    for m in email_re.findall(text)[:5]:
+        # Exclude SSH/IETF algorithm names (contain @ but are not addresses)
+        if SSH_ALGO_PATTERNS.search(m):
+            continue
+        # Must have a plausible TLD (not .org crypto tokens like openssh.com/curve...)
+        # and must not be all-lowercase-hyphenated-algo-style
+        if re.match(r'^[a-z0-9_-]+@[a-z0-9_.-]+$', m) and len(m.split('@')[0]) > 3:
+            # Extra check: skip anything that looks like an algo identifier
+            local = m.split('@')[0]
+            if re.search(r'(sha|aes|gcm|cbc|hmac|rsa|dsa|ecdsa|kex|chacha|poly)', local, re.I):
+                continue
+            result['credentials'].append({'type': 'email', 'string': m[:200], 'src': src_ip})
 
 
 def scan_for_suspicious(data: bytes, result):
@@ -669,14 +745,21 @@ def run_exiftool(filepath: str) -> dict:
     try:
         meta = json.loads(stdout)
         if meta:
-            # Flag suspicious fields
             suspicious = {}
             for k, v in meta[0].items():
                 val_str = str(v).lower()
-                if any(kw in val_str for kw in ['http', 'password', 'secret', 'key', 'flag', 'hidden', 'cmd', 'eval']):
+                key_lower = k.lower()
+                # Skip fields whose values are whitelisted encoder signatures
+                if any(benign in val_str for benign in BENIGN_EXIF_COMMENTS):
+                    continue
+                # Flag strong suspicious keyword in value
+                if any(kw in val_str for kw in ['password', 'secret', 'flag{', 'hidden', 'cmd', 'eval(']):
                     suspicious[k] = str(v)
-                if any(kw in k.lower() for kw in ['comment', 'description', 'usercomment', 'artist', 'copyright', 'software']):
-                    suspicious[k] = str(v)
+                    continue
+                # Flag metadata comment/description fields only if non-trivial
+                if any(kw in key_lower for kw in ['comment', 'usercomment', 'artist', 'copyright']):
+                    if str(v).strip() and len(str(v)) > 4:
+                        suspicious[k] = str(v)
             return {'tool': 'exiftool', 'metadata': meta[0], 'suspicious_fields': suspicious, 'error': None}
     except Exception:
         pass
@@ -704,14 +787,52 @@ def run_strings_deep(filepath: str) -> dict:
 
 
 def run_steghide_info(filepath: str) -> dict:
-    """Get steghide info without a passphrase (detects steghide-embedded data)."""
+    """Run steghide info and distinguish capacity-found from payload-extracted.
+
+    steghide with an empty passphrase (-p '') will:
+      - Report the file format and *theoretical* capacity even with no payload
+      - Only confirm payload if it can actually extract data
+    We therefore distinguish three states:
+      - payload_extracted : data was actually recovered (strong evidence)
+      - capacity_only     : format recognised, capacity reported, no extraction
+                            (weak — normal for any JPEG/BMP)
+      - not_detected      : steghide could not process the file
+    """
     stdout, stderr, rc = run_cmd(['steghide', 'info', '-p', '', filepath], timeout=10)
-    combined = (stdout + stderr).lower()
-    detected = 'embedded' in combined or 'format' in combined
+    combined = stdout + stderr
+    combined_lower = combined.lower()
+
+    # Strong signal: steghide actually extracted data
+    payload_extracted = (
+        'extracting secret data' in combined_lower
+        or ('wrote extracted data' in combined_lower)
+    )
+    # Weak signal: file is a recognised format but nothing extracted
+    capacity_only = (
+        not payload_extracted
+        and ('format' in combined_lower or 'capacity' in combined_lower)
+        and 'could not extract' not in combined_lower
+        and 'premature end' not in combined_lower
+    )
+    # Explicitly truncated/malformed
+    truncated = 'premature end' in combined_lower or 'unexpected end' in combined_lower
+
+    if payload_extracted:
+        label = 'PAYLOAD EXTRACTED — strong steganography evidence'
+    elif truncated:
+        label = 'File truncated/malformed — steghide could not complete'
+    elif capacity_only:
+        label = 'Capacity reported only — no payload recovered (normal for any JPEG/BMP)'
+    else:
+        label = 'No steganographic payload detected'
+
     return {
         'tool': 'steghide',
-        'detected': detected,
-        'output': (stdout + stderr)[:500]
+        'detected': payload_extracted,          # only True when data is actually recovered
+        'capacity_only': capacity_only,
+        'truncated': truncated,
+        'label': label,
+        'output': combined[:500]
     }
 
 
@@ -740,22 +861,59 @@ def deep_extract_image(filename: str) -> dict:
     if filename.lower().endswith(('.jpg', '.jpeg', '.bmp')):
         results['steghide'] = run_steghide_info(str(fpath))
 
-    # Summarise severity
-    flags = []
+    # ── Severity scoring ────────────────────────────────────────────────────
+    # Rule: HIGH requires 2+ *independent* strong signals.
+    # Steghide capacity-only and common EXIF comments do NOT count as strong.
+    strong_flags = []   # count toward HIGH
+    weak_flags   = []   # informational only
+
     if results['lsb']['findings']:
-        flags.append(f"LSB: {len(results['lsb']['findings'])} suspicious bit-plane(s)")
+        strong_flags.append(f"LSB: {len(results['lsb']['findings'])} suspicious bit-plane(s)")
+
     if results['binwalk']['findings']:
-        flags.append(f"Binwalk: {len(results['binwalk']['findings'])} embedded signature(s)")
-    if results['exiftool'].get('suspicious_fields'):
-        flags.append(f"EXIF: {len(results['exiftool']['suspicious_fields'])} suspicious field(s)")
+        strong_flags.append(f"Binwalk: {len(results['binwalk']['findings'])} embedded signature(s)")
+
+    exif_sus = results['exiftool'].get('suspicious_fields', {})
+    # Filter out whitelisted encoder comments from exiftool findings too
+    real_exif = {
+        k: v for k, v in exif_sus.items()
+        if not any(benign in str(v).lower() for benign in BENIGN_EXIF_COMMENTS)
+    }
+    if real_exif:
+        strong_flags.append(f"EXIF: {len(real_exif)} suspicious field(s)")
+    elif exif_sus:
+        weak_flags.append(f"EXIF: {len(exif_sus)} field(s) (common encoder metadata)")
+
     for enc, d in results['strings']['results'].items():
         if d['interesting']:
-            flags.append(f"Strings ({enc}): {len(d['interesting'])} hits")
-    if results.get('steghide', {}).get('detected'):
-        flags.append("Steghide: embedded data detected")
+            strong_flags.append(f"Strings ({enc}): {len(d['interesting'])} hits")
 
-    results['severity'] = 'HIGH' if len(flags) >= 2 else 'MEDIUM' if flags else 'LOW'
-    results['flags'] = flags
+    sg = results.get('steghide', {})
+    if sg.get('detected'):                        # actual payload extracted
+        strong_flags.append("Steghide: PAYLOAD EXTRACTED")
+    elif sg.get('truncated'):
+        weak_flags.append("Steghide: file truncated/malformed")
+    elif sg.get('capacity_only'):
+        weak_flags.append("Steghide: capacity reported only (no payload — normal for JPEG/BMP)")
+
+    all_flags = strong_flags + weak_flags
+
+    # HIGH = 2+ strong independent signals
+    # MEDIUM = 1 strong signal OR 2+ weak signals
+    # LOW = weak signals only or nothing
+    if len(strong_flags) >= 2:
+        severity = 'HIGH'
+    elif len(strong_flags) == 1:
+        severity = 'MEDIUM'
+    elif len(weak_flags) >= 2:
+        severity = 'LOW-MEDIUM'
+    else:
+        severity = 'LOW'
+
+    results['severity'] = severity
+    results['flags'] = all_flags
+    results['strong_flags'] = strong_flags
+    results['weak_flags'] = weak_flags
     return results
 
 
@@ -872,12 +1030,12 @@ def extract_image(filename):
 
 @app.route('/api/extract_all', methods=['GET'])
 def extract_all():
-    """Run deep extraction on all extracted images."""
-    images = list(EXTRACT_DIR.glob('img_*'))
+    """Run deep extraction on ALL extracted images (no cap)."""
+    images = sorted(EXTRACT_DIR.glob('img_*'))
     results = []
-    for img in images[:20]:  # cap at 20
+    for img in images:
         results.append(deep_extract_image(img.name))
-    return jsonify({'results': results, 'total': len(results)})
+    return jsonify({'results': results, 'total': len(results), 'processed': len(images)})
 
 
 @app.route('/api/files')
