@@ -172,6 +172,81 @@ def check_exif_stego(image_bytes: bytes) -> dict:
                 break
     return {'suspicious_exif': findings, 'has_hidden_strings': len(findings) > 0}
 
+# ─── DNS Tunneling Helpers ───────────────────────────────────────────────────
+
+# Active Directory / Windows service discovery SRV record prefixes.
+# These are long by design and are emitted automatically by Windows domain
+# members — they are NOT tunneling traffic.
+_AD_SRV_PREFIXES = (
+    '_ldap._tcp.',
+    '_kerberos._tcp.',
+    '_kerberos._udp.',
+    '_gc._tcp.',
+    '_kpasswd._tcp.',
+    '_kpasswd._udp.',
+    '_ldap._tcp.dc.',
+    '_ldap._tcp.gc.',
+    '_ldap._tcp.pdc.',
+    '_ldap._tcp.default-first-site-name._sites.',
+    '_msdcs.',
+)
+
+# Known CDN / infrastructure domains whose hostnames are legitimately long
+_BENIGN_LONG_DOMAINS = (
+    '.in-addr.arpa',
+    '.ip6.arpa',
+    'doh.xfinity.com',
+    'dns.google',
+    'cloudflare-dns.com',
+    'dns.quad9.net',
+)
+
+# Real tunneling tools typically use random-looking base32/base64 subdomains.
+# This regex matches that pattern: a label of 20+ chars that is mostly
+# alphanumeric with no vowel clusters (i.e. looks encoded, not a real word).
+import string as _string
+_HIGH_ENTROPY_LABEL = re.compile(r'(?:^|\.)[a-z0-9]{20,}(?:\.|$)', re.IGNORECASE)
+
+
+def is_benign_dns_query(qname: str) -> bool:
+    """Return True if this query is a known-benign long DNS pattern."""
+    ql = qname.lower()
+    # Active Directory SRV lookups
+    if any(ql.startswith(p) or ('.' + p.lstrip('_')) in ql for p in _AD_SRV_PREFIXES):
+        return True
+    # _msdcs anywhere in the name is AD
+    if '_msdcs.' in ql or '_sites.' in ql:
+        return True
+    # Known CDN / resolver infrastructure
+    if any(ql.endswith(d) or ql == d.lstrip('.') for d in _BENIGN_LONG_DOMAINS):
+        return True
+    # Windows netlogon / DFSN patterns
+    if ql.startswith('_tcp.') or ql.startswith('_udp.'):
+        return True
+    return False
+
+
+def is_dns_tunnel_suspect(qname: str) -> bool:
+    """Return True only when the query has strong tunneling indicators.
+
+    Criteria (must meet at least one strong signal):
+      1. Total length > 100 chars (legitimate FQDNs rarely exceed this)
+      2. A single label is 30+ chars (base32/base64 encoded data)
+      3. More than 6 dots AND length > 60 (deep subdomain + long)
+      4. High-entropy label pattern (random-looking encoding)
+    """
+    if len(qname) > 100:
+        return True
+    labels = qname.split('.')
+    if any(len(l) >= 30 for l in labels):
+        return True
+    if qname.count('.') > 6:
+        return True
+    if _HIGH_ENTROPY_LABEL.search(qname):
+        return True
+    return False
+
+
 # ─── PCAP Parser ─────────────────────────────────────────────────────────────
 
 def parse_pcap(filepath: str) -> dict:
@@ -295,7 +370,8 @@ def parse_pcap(filepath: str) -> dict:
                                             'src': src_ip
                                         })
                                         # DNS tunneling detection
-                                        if len(qname) > 50 or qname.count('.') > 5:
+                                        # Whitelist well-known benign long-query patterns before scoring
+                                        if not is_benign_dns_query(qname) and is_dns_tunnel_suspect(qname):
                                             result['rfc_violations'].append({
                                                 'type': 'DNS_TUNNELING_SUSPECT',
                                                 'pkt': pkt_count,
