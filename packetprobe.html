@@ -1551,7 +1551,21 @@ function renderReport(data, violations, stego, images, creds) {
     <div class="card">
       <div class="card-header">
         <span class="card-title">📋 FORENSIC ANALYSIS REPORT</span>
-        <span style="font-family:var(--mono);font-size:10px;color:var(--text3)">${now}</span>
+        <div style="display:flex;align-items:center;gap:8px">
+          <span style="font-family:var(--mono);font-size:10px;color:var(--text3)">${now}</span>
+          <button onclick="exportReport('html')"  title="Download styled HTML report"
+            style="padding:4px 10px;background:rgba(0,212,255,0.1);border:1px solid var(--cyan);border-radius:4px;
+                   color:var(--cyan);font-family:var(--mono);font-size:10px;cursor:pointer;letter-spacing:1px">
+            ⬇ HTML</button>
+          <button onclick="exportReport('markdown')" title="Download Markdown report"
+            style="padding:4px 10px;background:rgba(0,255,159,0.1);border:1px solid var(--green);border-radius:4px;
+                   color:var(--green);font-family:var(--mono);font-size:10px;cursor:pointer;letter-spacing:1px">
+            ⬇ MD</button>
+          <button onclick="exportReport('json')" title="Download raw JSON data"
+            style="padding:4px 10px;background:rgba(189,0,255,0.1);border:1px solid var(--purple);border-radius:4px;
+                   color:var(--purple);font-family:var(--mono);font-size:10px;cursor:pointer;letter-spacing:1px">
+            ⬇ JSON</button>
+        </div>
       </div>
       <div class="card-body">
         <div class="report-section">
@@ -1583,6 +1597,286 @@ function renderReport(data, violations, stego, images, creds) {
         </div>
       </div>
     </div>`;
+}
+
+// ─── Export Report ───────────────────────────────────────────────────────────
+
+function exportReport(format) {
+  if (!currentAnalysis) { alert('No analysis loaded.'); return; }
+  const d = currentAnalysis;
+  const v = d.rfc_violations || [];
+  const s = d.stego_findings || [];
+  const c = d.credentials || [];
+  const img = d.extracted_images || [];
+  const dns = d.dns_queries || [];
+  const proto = d.protocols || {};
+  const stats = d.stats || {};
+  const now = new Date().toLocaleString();
+  const risk = v.length > 10 || s.length > 0 || c.length > 0 ? 'HIGH'
+    : v.length > 3 || img.length > 0 ? 'MEDIUM' : 'LOW';
+  const fname = (d.filename || 'capture').replace(/[^a-z0-9_.-]/gi, '_');
+
+  if (format === 'json') {
+    // Full raw dump including everything
+    const blob = new Blob([JSON.stringify(d, null, 2)], {type: 'application/json'});
+    triggerDownload(blob, `packetprobe_${fname}_${datestamp()}.json`);
+    return;
+  }
+
+  if (format === 'markdown') {
+    const md = buildMarkdownReport(d, v, s, c, img, dns, proto, stats, risk, now);
+    const blob = new Blob([md], {type: 'text/markdown'});
+    triggerDownload(blob, `packetprobe_${fname}_${datestamp()}.md`);
+    return;
+  }
+
+  if (format === 'html') {
+    const html = buildHtmlReport(d, v, s, c, img, dns, proto, stats, risk, now);
+    const blob = new Blob([html], {type: 'text/html'});
+    triggerDownload(blob, `packetprobe_${fname}_${datestamp()}.html`);
+    return;
+  }
+}
+
+function datestamp() {
+  return new Date().toISOString().slice(0,19).replace(/[:T]/g,'-');
+}
+
+function triggerDownload(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function buildMarkdownReport(d, v, s, c, img, dns, proto, stats, risk, now) {
+  const riskIcon = risk === 'HIGH' ? '🔴' : risk === 'MEDIUM' ? '🟠' : '🟢';
+  const nl = '\n';
+  let md = '';
+  md += '# PacketProbe Forensic Analysis Report' + nl + nl;
+  md += '**File:** ' + (d.filename || 'unknown') + '  ' + nl;
+  md += '**Format:** ' + (stats.format || 'PCAP') + '  ' + nl;
+  md += '**Analyzed:** ' + now + '  ' + nl;
+  md += '**Risk Level:** ' + riskIcon + ' **' + risk + '**' + nl + nl;
+  md += '---' + nl + nl;
+  md += '## Executive Summary' + nl + nl;
+  md += 'Analysis of `' + (d.filename||'unknown') + '` identified:' + nl + nl;
+  md += '| Finding | Count |' + nl + '|---|---|' + nl;
+  md += '| Total Packets | ' + (stats.total_packets||0).toLocaleString() + ' |' + nl;
+  md += '| RFC Violations | ' + v.length + ' |' + nl;
+  md += '| Steganography Suspects | ' + s.length + ' |' + nl;
+  md += '| Credential Exposures | ' + c.length + ' |' + nl;
+  md += '| Images Extracted | ' + img.length + ' |' + nl;
+  md += '| DNS Queries | ' + dns.length + ' |' + nl + nl;
+  md += '---' + nl + nl;
+  md += '## Protocol Breakdown' + nl + nl;
+  md += '| Protocol | Packets |' + nl + '|---|---|' + nl;
+  Object.entries(proto).sort((a,b)=>b[1]-a[1]).forEach(([k,val]) => { md += '| ' + k + ' | ' + val + ' |' + nl; });
+  md += nl + '---' + nl + nl;
+  md += '## RFC Violations (' + v.length + ')' + nl + nl;
+  if (v.length === 0) {
+    md += '_No RFC violations detected._' + nl + nl;
+  } else {
+    const grouped = {};
+    v.forEach(x => { if (!grouped[x.type]) grouped[x.type] = []; grouped[x.type].push(x); });
+    Object.entries(grouped).forEach(([type, items]) => {
+      md += '### ' + type + ' (' + items.length + ' occurrence' + (items.length>1?'s':'') + ')' + nl + nl;
+      items.slice(0,5).forEach(i => { md += '- Packet #' + i.pkt + ': ' + (i.detail||'') + nl; });
+      md += nl;
+    });
+  }
+  md += '---' + nl + nl;
+  md += '## Steganography Analysis (' + s.length + ' suspects)' + nl + nl;
+  if (s.length === 0) {
+    md += '_No steganographic indicators detected._' + nl + nl;
+  } else {
+    s.forEach(x => {
+      md += '### ' + x.file + nl;
+      md += '- **Type:** ' + x.type + nl;
+      md += '- **LSB Entropy:** ' + (x.details?.lsb_entropy || 'N/A') + nl;
+      md += '- **Assessment:** ' + (x.details?.reason || 'N/A') + nl;
+      md += '- **Suspicious EXIF:** ' + (x.exif?.has_hidden_strings ? 'YES' : 'No') + nl + nl;
+    });
+  }
+  md += '---' + nl + nl;
+  md += '## Credential Exposures (' + c.length + ')' + nl + nl;
+  if (c.length === 0) {
+    md += '_No cleartext credentials detected._' + nl + nl;
+  } else {
+    md += '| Type | Context | Value |' + nl + '|---|---|---|' + nl;
+    c.forEach(x => {
+      md += '| ' + (x.type||'UNKNOWN') + ' | ' + (x.context||'') + ' | `' + (x.string||'').substring(0,80).replace(/`/g,"'") + '` |' + nl;
+    });
+    md += nl;
+  }
+  md += '---' + nl + nl;
+  md += '## Extracted Images (' + img.length + ')' + nl + nl;
+  if (img.length === 0) {
+    md += '_No images extracted._' + nl + nl;
+  } else {
+    md += '| Filename | Type | Size | Entropy | Stego Suspect |' + nl + '|---|---|---|---|---|' + nl;
+    img.forEach(x => {
+      const sus = x.lsb_stego?.detected ? '⚠️ YES' : 'No';
+      md += '| ' + x.filename + ' | ' + x.type + ' | ' + (x.size/1024).toFixed(1) + ' KB | ' + x.entropy + ' | ' + sus + ' |' + nl;
+    });
+    md += nl;
+  }
+  md += '---' + nl + nl;
+  md += '## DNS Queries (' + dns.length + ')' + nl + nl;
+  if (dns.length > 0) {
+    dns.slice(0,30).forEach(q => { md += '- `' + (q.name||'') + '` from `' + (q.src||'') + '`' + nl; });
+    md += nl;
+  } else {
+    md += '_No DNS queries captured._' + nl + nl;
+  }
+  md += '---' + nl + nl;
+  md += '## Recommendations' + nl + nl;
+  if (v.some(x=>x.type.includes('SCAN'))) md += '1. **[CRITICAL]** Block malformed TCP flag combinations at the perimeter firewall.' + nl;
+  if (s.length > 0) md += '2. **[CRITICAL]** Analyze flagged images with zsteg, stegdetect, or StegExpose.' + nl;
+  if (c.length > 0) md += '3. **[CRITICAL]** Rotate all exposed credentials immediately and enforce TLS.' + nl;
+  if (v.some(x=>x.type==='DNS_TUNNELING_SUSPECT')) md += '4. **[CRITICAL]** Investigate DNS tunneling — implement DNS filtering and RPZ rules.' + nl;
+  if (v.some(x=>x.type==='ICMP_TUNNELING_SUSPECT')) md += '5. **[WARNING]** Restrict ICMP payload size at perimeter.' + nl;
+  md += '- Deploy continuous packet capture (Zeek/Arkime) for ongoing forensic readiness.' + nl;
+  md += '- Review network segmentation and enforce least-privilege ACLs.' + nl + nl;
+  md += '---' + nl + nl;
+  md += '_Generated by PacketProbe · https://github.com/jenniferdothabel/packetprobe_' + nl;
+  return md;
+}
+
+function buildHtmlReport(d, v, s, c, img, dns, proto, stats, risk, now) {
+  const riskColor = risk === 'HIGH' ? '#ff3860' : risk === 'MEDIUM' ? '#ff9500' : '#00ff9f';
+  const riskBg    = risk === 'HIGH' ? 'rgba(255,56,96,0.1)' : risk === 'MEDIUM' ? 'rgba(255,149,0,0.1)' : 'rgba(0,255,159,0.1)';
+
+  const violationRows = v.slice(0,50).map(x =>
+    `<tr><td>${escHtml(x.type)}</td><td>#${x.pkt}</td><td>${escHtml(x.detail||'')}</td></tr>`
+  ).join('');
+
+  const stegoRows = s.map(x =>
+    `<tr><td>${escHtml(x.file)}</td><td>${x.details?.lsb_entropy||'N/A'}</td><td>${x.details?.detected?'⚠️ YES':'No'}</td><td>${x.exif?.has_hidden_strings?'⚠️ YES':'No'}</td></tr>`
+  ).join('');
+
+  const credRows = c.map(x =>
+    `<tr><td>${escHtml(x.type||'UNKNOWN')}</td><td>${escHtml(x.context||'')}</td><td><code>${escHtml((x.string||'').substring(0,80))}</code></td></tr>`
+  ).join('');
+
+  const imgRows = img.map(x =>
+    `<tr><td>${escHtml(x.filename)}</td><td>${x.type}</td><td>${(x.size/1024).toFixed(1)} KB</td><td>${x.entropy}</td><td style="color:${x.lsb_stego?.detected?'#ff3860':'#00ff9f'}">${x.lsb_stego?.detected?'⚠️ YES':'No'}</td></tr>`
+  ).join('');
+
+  const protoRows = Object.entries(proto).sort((a,b)=>b[1]-a[1]).map(([k,val])=>
+    `<tr><td>${k}</td><td>${val}</td></tr>`
+  ).join('');
+
+  const dnsRows = dns.slice(0,30).map(q=>
+    `<tr><td><code>${escHtml(q.name||'')}</code></td><td>${escHtml(q.src||'')}</td></tr>`
+  ).join('');
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>PacketProbe Report — ${escHtml(d.filename||'capture')}</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{font-family:'Segoe UI',system-ui,sans-serif;background:#070b12;color:#c8d8f0;padding:40px;line-height:1.6}
+  h1{font-size:28px;letter-spacing:3px;color:#00d4ff;margin-bottom:4px}
+  h2{font-size:16px;letter-spacing:2px;color:#00d4ff;margin:32px 0 12px;padding-bottom:8px;border-bottom:1px solid #1e3050;text-transform:uppercase}
+  h3{font-size:13px;color:#7a9ab8;letter-spacing:1px;margin:16px 0 6px;text-transform:uppercase}
+  .meta{font-family:monospace;font-size:12px;color:#4a6a88;margin-bottom:32px}
+  .risk-badge{display:inline-block;padding:8px 24px;border-radius:6px;font-size:22px;font-weight:700;letter-spacing:3px;background:${riskBg};color:${riskColor};border:1px solid ${riskColor};margin:16px 0}
+  .summary-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin:20px 0}
+  .stat{background:#0f1928;border:1px solid #1e3050;border-radius:8px;padding:16px;text-align:center}
+  .stat-val{font-size:28px;font-weight:700;font-family:monospace;color:#00d4ff}
+  .stat-val.red{color:#ff3860}.stat-val.orange{color:#ff9500}.stat-val.green{color:#00ff9f}
+  .stat-lbl{font-size:10px;letter-spacing:2px;color:#4a6a88;text-transform:uppercase;margin-top:4px}
+  table{width:100%;border-collapse:collapse;font-size:12px;margin:12px 0}
+  th{padding:8px 12px;text-align:left;color:#4a6a88;letter-spacing:1px;font-size:10px;text-transform:uppercase;border-bottom:1px solid #1e3050}
+  td{padding:8px 12px;border-bottom:1px solid rgba(30,48,80,0.5);color:#c8d8f0}
+  tr:hover td{background:rgba(0,212,255,0.03)}
+  code{font-family:monospace;background:#0c1220;padding:1px 6px;border-radius:3px;font-size:11px;color:#ff9500;word-break:break-all}
+  .finding{padding:10px 14px;border-radius:6px;border-left:3px solid;margin-bottom:8px;background:rgba(0,0,0,0.2)}
+  .finding.crit{border-color:#ff3860}.finding.warn{border-color:#ff9500}.finding.ok{border-color:#00ff9f}
+  .finding-type{font-family:monospace;font-size:10px;font-weight:700;letter-spacing:2px;margin-bottom:4px}
+  .finding.crit .finding-type{color:#ff3860}.finding.warn .finding-type{color:#ff9500}.finding.ok .finding-type{color:#00ff9f}
+  .finding-detail{font-size:12px;color:#7a9ab8}
+  .rec{display:flex;gap:12px;padding:10px 0;border-bottom:1px solid rgba(30,48,80,0.4);align-items:flex-start}
+  .rec-num{width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-family:monospace;font-size:9px;font-weight:700;flex-shrink:0}
+  .rec-num.crit{background:rgba(255,56,96,0.2);color:#ff3860;border:1px solid #ff3860}
+  .rec-num.warn{background:rgba(255,149,0,0.2);color:#ff9500;border:1px solid #ff9500}
+  .rec-num.info{background:rgba(0,212,255,0.1);color:#00d4ff;border:1px solid #00d4ff}
+  .rec-title{font-size:13px;font-weight:600;color:#c8d8f0;margin-bottom:4px}
+  .rec-desc{font-family:monospace;font-size:11px;color:#7a9ab8}
+  footer{margin-top:40px;padding-top:20px;border-top:1px solid #1e3050;font-family:monospace;font-size:10px;color:#4a6a88;text-align:center}
+  a{color:#00d4ff}
+  @media print{body{background:#fff;color:#000}h1,h2,h3,.stat-val{color:#000!important}.risk-badge{color:#000!important;border-color:#000!important}.meta,.stat-lbl,.finding-detail,.rec-desc{color:#444!important}.stat,.finding{background:#f5f5f5!important;border-color:#ccc!important}td,th{color:#000!important}}
+</style>
+</head>
+<body>
+
+<h1>📡 PACKETPROBE</h1>
+<div class="meta">
+  FORENSIC ANALYSIS REPORT &nbsp;·&nbsp; ${escHtml(d.filename||'unknown')} &nbsp;·&nbsp; ${escHtml(stats.format||'PCAP')} &nbsp;·&nbsp; ${now}
+</div>
+
+<h2>Risk Assessment</h2>
+<div class="risk-badge">${risk} RISK</div>
+
+<div class="summary-grid">
+  <div class="stat"><div class="stat-val">${(stats.total_packets||0).toLocaleString()}</div><div class="stat-lbl">Total Packets</div></div>
+  <div class="stat"><div class="stat-val red">${v.length}</div><div class="stat-lbl">RFC Violations</div></div>
+  <div class="stat"><div class="stat-val orange">${s.length}</div><div class="stat-lbl">Stego Suspects</div></div>
+  <div class="stat"><div class="stat-val red">${c.length}</div><div class="stat-lbl">Credential Hits</div></div>
+  <div class="stat"><div class="stat-val green">${img.length}</div><div class="stat-lbl">Images Found</div></div>
+  <div class="stat"><div class="stat-val">${dns.length}</div><div class="stat-lbl">DNS Queries</div></div>
+</div>
+
+<h2>Key Findings</h2>
+${v.length>0?`<div class="finding crit"><div class="finding-type">RFC VIOLATIONS (${v.length})</div><div class="finding-detail">${[...new Set(v.map(x=>x.type))].join(' · ')}</div></div>`:''}
+${s.length>0?`<div class="finding warn"><div class="finding-type">STEGANOGRAPHY SUSPECTS (${s.length})</div><div class="finding-detail">${s.map(x=>x.file).join(', ')}</div></div>`:''}
+${c.length>0?`<div class="finding crit"><div class="finding-type">CREDENTIAL EXPOSURES (${c.length})</div><div class="finding-detail">Cleartext credentials in: ${[...new Set(c.map(x=>x.context||''))].join(', ')}</div></div>`:''}
+${v.length===0&&s.length===0&&c.length===0?'<div class="finding ok"><div class="finding-type">✅ NO CRITICAL FINDINGS</div></div>':''}
+
+<h2>Protocol Breakdown</h2>
+<table><thead><tr><th>Protocol</th><th>Packets</th></tr></thead><tbody>${protoRows}</tbody></table>
+
+<h2>RFC Violations (${v.length})</h2>
+${v.length===0?'<p style="color:#4a6a88;font-family:monospace;font-size:12px">None detected.</p>':
+`<table><thead><tr><th>Type</th><th>Packet</th><th>Detail</th></tr></thead><tbody>${violationRows}</tbody></table>`}
+
+<h2>Steganography Analysis (${s.length} suspects)</h2>
+${s.length===0?'<p style="color:#4a6a88;font-family:monospace;font-size:12px">No steganographic indicators.</p>':
+`<table><thead><tr><th>File</th><th>LSB Entropy</th><th>LSB Suspect</th><th>EXIF Anomaly</th></tr></thead><tbody>${stegoRows}</tbody></table>`}
+
+<h2>Credential Exposures (${c.length})</h2>
+${c.length===0?'<p style="color:#4a6a88;font-family:monospace;font-size:12px">No cleartext credentials detected.</p>':
+`<table><thead><tr><th>Type</th><th>Context</th><th>Value</th></tr></thead><tbody>${credRows}</tbody></table>`}
+
+<h2>Extracted Images (${img.length})</h2>
+${img.length===0?'<p style="color:#4a6a88;font-family:monospace;font-size:12px">No images extracted.</p>':
+`<table><thead><tr><th>Filename</th><th>Type</th><th>Size</th><th>Entropy</th><th>Stego</th></tr></thead><tbody>${imgRows}</tbody></table>`}
+
+<h2>DNS Queries (${dns.length})</h2>
+${dns.length===0?'<p style="color:#4a6a88;font-family:monospace;font-size:12px">No DNS queries captured.</p>':
+`<table><thead><tr><th>Query</th><th>Source</th></tr></thead><tbody>${dnsRows}</tbody></table>`}
+
+<h2>Recommendations</h2>
+<div>
+${v.some(x=>x.type.includes('SCAN'))?`<div class="rec"><div class="rec-num crit">1</div><div><div class="rec-title">Block Malformed TCP Scans</div><div class="rec-desc">Implement stateful firewall rules to reject XMAS/NULL scan flag combinations.</div></div></div>`:''}
+${s.length>0?`<div class="rec"><div class="rec-num crit">!</div><div><div class="rec-title">Investigate Steganographic Content</div><div class="rec-desc">Run flagged images through zsteg, stegdetect, binwalk, or StegExpose.</div></div></div>`:''}
+${c.length>0?`<div class="rec"><div class="rec-num crit">!</div><div><div class="rec-title">Rotate Exposed Credentials</div><div class="rec-desc">Enforce TLS/HTTPS everywhere. Immediately rotate all credentials found in plaintext.</div></div></div>`:''}
+${v.some(x=>x.type==='DNS_TUNNELING_SUSPECT')?`<div class="rec"><div class="rec-num crit">!</div><div><div class="rec-title">Investigate DNS Tunneling</div><div class="rec-desc">Apply DNS RPZ rules and threat intel feeds to block tunneling domains.</div></div></div>`:''}
+${v.some(x=>x.type==='ICMP_TUNNELING_SUSPECT')?`<div class="rec"><div class="rec-num warn">!</div><div><div class="rec-title">Restrict ICMP Payload Size</div><div class="rec-desc">Limit ICMP payload to 64 bytes at the perimeter to block tunneling.</div></div></div>`:''}
+<div class="rec"><div class="rec-num info">i</div><div><div class="rec-title">Deploy Continuous PCAP</div><div class="rec-desc">Use Zeek or Arkime for ongoing forensic-ready packet capture at ingress/egress.</div></div></div>
+<div class="rec"><div class="rec-num info">i</div><div><div class="rec-title">Review Network Segmentation</div><div class="rec-desc">Enforce least-privilege ACLs between zones. Limit inter-segment traffic to necessary ports.</div></div></div>
+</div>
+
+<footer>
+  Generated by <a href="https://github.com/jenniferdothabel/packetprobe">PacketProbe</a> &nbsp;·&nbsp; ${now}
+</footer>
+</body>
+</html>`;
 }
 
 // ─── Tab Navigation ────────────────────────────────────────────────────────────
