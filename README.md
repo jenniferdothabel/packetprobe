@@ -201,6 +201,69 @@ For confirmed steganography investigation, run flagged images through:
 
 ---
 
+## Deploying to Namecheap Shared Hosting (cPanel)
+
+PacketProbe supports deployment to Namecheap shared hosting via cPanel's built-in Python App feature. No VPS required.
+
+### Step 1 — Create a Python App in cPanel
+
+1. Log in to cPanel → **Software** → **Setup Python App**
+2. Click **Create Application**
+3. Set:
+   - **Python version:** 3.10 or higher
+   - **Application root:** `packetprobe` (or any folder name)
+   - **Application URL:** select your domain or subdomain (e.g. `pcap.yourdomain.com`)
+   - **Application startup file:** `passenger_wsgi.py`
+   - **Application entry point:** `application`
+4. Click **Create**
+
+### Step 2 — Upload the files
+
+Upload all files from this repo into the Application root folder via **File Manager** or **Git Version Control** in cPanel:
+
+```
+packetprobe/
+├── packetprobe_server.py
+├── packetprobe.html
+├── passenger_wsgi.py
+├── requirements.txt
+└── .htaccess
+```
+
+### Step 3 — Install dependencies
+
+1. Back in **Setup Python App**, find your app and click **Edit**
+2. In **Configuration files**, enter `requirements.txt` and click **Add**
+3. Click **Run Pip Install**
+
+Or via SSH:
+```bash
+source /home/YOUR_CPANEL_USER/virtualenv/packetprobe/3.10/bin/activate
+pip install -r requirements.txt
+```
+
+### Step 4 — Restart and test
+
+1. Click **Restart** in the Python App panel
+2. Visit your application URL — you should see PacketProbe load
+
+### Troubleshooting
+
+If you see a blank page or error, enable friendly errors temporarily by adding this to `.htaccess`:
+```
+PassengerFriendlyErrorPages on
+```
+
+Check the Passenger log file you set during app creation for detailed error output.
+
+### Notes
+
+- The `uploads/` and `extracted/` folders will be created automatically on first run inside your app root
+- 50 MB upload limit is enforced by Flask — to raise it edit `MAX_CONTENT_LENGTH` in `packetprobe_server.py`
+- The AI assistant requires users to paste their own Anthropic API key — no server-side key needed
+
+---
+
 ## License
 
 MIT — free to use, modify, and distribute.

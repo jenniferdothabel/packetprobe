@@ -1,0 +1,15 @@
+# PacketProbe — cPanel / Apache configuration
+
+# Increase upload limit to 50MB
+php_value upload_max_filesize 50M
+php_value post_max_size 55M
+
+# Show Passenger errors during setup (remove in production)
+# PassengerFriendlyErrorPages on
+
+# Ensure Python app is served correctly
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteRule ^(.*)$ passenger_wsgi.py/$1 [QSA,L]
+</IfModule>

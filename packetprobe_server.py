@@ -28,6 +28,7 @@ warnings.filterwarnings('ignore', message='.*getdata is deprecated.*', category=
 warnings.filterwarnings('ignore', message='.*get_flattened_data.*', category=DeprecationWarning)
 
 app = Flask(__name__)
+app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50 MB upload limit
 CORS(app)
 
 # Use directories relative to wherever this script lives
@@ -1171,6 +1172,14 @@ def download_file(filename):
         return send_file(str(fpath), as_attachment=True)
     return jsonify({'error': 'not found'}), 404
 
+
+@app.errorhandler(413)
+def too_large(e):
+    return jsonify({'error': 'File too large — maximum upload size is 50 MB'}), 413
+
+
+# WSGI alias — Passenger/cPanel requires the app object to be named 'application'
+application = app
 
 if __name__ == '__main__':
     print("PacketProbe backend starting on :7734")
