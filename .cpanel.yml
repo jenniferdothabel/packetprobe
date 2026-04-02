@@ -1,0 +1,6 @@
+---
+deployment:
+  tasks:
+    - export DEPLOYPATH=/home/octarlib/packetprobe
+    - /bin/mkdir -p $DEPLOYPATH
+    - /bin/cp -r $TRAVIS_BUILD_DIR/. $DEPLOYPATH/
